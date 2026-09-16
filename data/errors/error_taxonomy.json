@@ -1,0 +1,23 @@
+{
+  "n_full_correct": 2775,
+  "shortcut_success": {
+    "n": 2515,
+    "has_type_constraint_cue_rate": 0.25089463220675945,
+    "mean_qa_word_overlap": 0.43328019367575155,
+    "bridge_title_in_question_rate": 0.5065606361829026,
+    "bridge_title_in_answer_hop_rate": 0.20596421471172963
+  },
+  "bridge_needed": {
+    "n": 260,
+    "has_type_constraint_cue_rate": 0.11923076923076924,
+    "mean_qa_word_overlap": 0.424378962005708,
+    "bridge_title_in_question_rate": 0.2653846153846154,
+    "bridge_title_in_answer_hop_rate": 0.5615384615384615
+  },
+  "bridge_only_wrong": {
+    "n": 4712,
+    "type_match_rate": 0.6948217317487266,
+    "mean_confidence_type_match": 0.516520103673819,
+    "mean_confidence_type_mismatch": 0.30902549572900984
+  }
+}

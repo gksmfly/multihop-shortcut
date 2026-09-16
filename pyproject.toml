@@ -3,9 +3,9 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "kg-noise-lite"
+name = "multihop-shortcut"
 version = "0.1.0"
-description = "Does a BERT classifier detect entity- vs relation-level label noise in KG-to-text data equally well?"
+description = "Does a BERT multi-hop QA model integrate both hops, or shortcut via the answer-hop paragraph alone?"
 requires-python = ">=3.12"
 dependencies = [
     "transformers",

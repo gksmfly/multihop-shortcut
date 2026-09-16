@@ -1,5 +1,15 @@
 {
-  "p95_raw": 48,
-  "recommended_max_length": 48,
-  "n_train": 16023
+  "n": 47780,
+  "min": 46,
+  "p50": 214,
+  "p90": 324,
+  "p95": 362,
+  "p99": 445,
+  "max": 863,
+  "truncated_frac_at_256": 0.2927,
+  "truncated_frac_at_320": 0.1067,
+  "truncated_frac_at_384": 0.0325,
+  "truncated_frac_at_448": 0.0094,
+  "truncated_frac_at_512": 0.0032,
+  "recommended_max_length": 448
 }

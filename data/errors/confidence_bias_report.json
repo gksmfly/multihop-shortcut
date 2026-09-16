@@ -1,0 +1,45 @@
+{
+  "n": 4734,
+  "mean_confidence": {
+    "full": 0.6905430486685639,
+    "answer_only": 0.7256460043232429,
+    "bridge_only": 0.4541074195706031
+  },
+  "mean_cls_prob": {
+    "full": 6.989632307771441e-05,
+    "answer_only": 5.980956156097264e-05,
+    "bridge_only": 0.001266352202244343
+  },
+  "mean_confidence_drop_full_minus_bridge_only": 0.23643562909796081,
+  "mean_confidence_drop_answer_only_minus_bridge_only": 0.2715385847526398,
+  "frac_confidence_drop_le_0.1_vs_full": 0.4273341782847486,
+  "bridge_only_type_match_rate_all": 0.6949725390790029,
+  "bridge_only_type_match_rate_wrong_only": 0.6948217317487266,
+  "n_bridge_only_wrong": 4712,
+  "confidence_histogram_bins": [
+    "[0.0,0.1)",
+    "[0.1,0.3)",
+    "[0.3,0.5)",
+    "[0.5,0.7)",
+    "[0.7,0.9)",
+    "[0.9,1.0)"
+  ],
+  "confidence_histogram": {
+    "full": [
+      127,
+      538,
+      634,
+      781,
+      967,
+      1687
+    ],
+    "bridge_only": [
+      1122,
+      903,
+      689,
+      529,
+      610,
+      881
+    ]
+  }
+}

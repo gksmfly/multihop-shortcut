@@ -1,48 +1,61 @@
+"""Tokenize (question, context) pairs from the train split to pick
+max_length for scripts/05_train_bert.py. Full-condition context is the
+longest of the three eval conditions (it's the only one used for training),
+so its length distribution is what matters here.
 """
-Step 4: tokenizer(triple_text, sentence) 인코딩 전에 실제 길이 분포를 보고
-max_length를 정한다. train split 기준 95th percentile로 정한다
-(테스트 통계 유출을 피하기 위해 train만 사용).
-"""
+
 import json
 
-import numpy as np
 from transformers import BertTokenizerFast
 
-from kg_noise.constants import MODEL_NAME
-from kg_noise.io_utils import load_jsonl
-from kg_noise.paths import SPLITS_DIR
+from multihop_shortcut.constants import BASE_MODEL_NAME
+from multihop_shortcut.io_utils import load_jsonl
+from multihop_shortcut.paths import SPLITS_DIR
 
-TRAIN = SPLITS_DIR / "train.jsonl"
+CANDIDATE_MAX_LENGTHS = [256, 320, 384, 448, 512]
 
 
-def main():
-    rows = load_jsonl(TRAIN)
+def percentile(sorted_vals: list[int], p: float) -> int:
+    idx = int(len(sorted_vals) * p)
+    idx = min(idx, len(sorted_vals) - 1)
+    return sorted_vals[idx]
 
-    tok = BertTokenizerFast.from_pretrained(MODEL_NAME)
+
+def main() -> None:
+    rows = load_jsonl(SPLITS_DIR / "train.jsonl")
+    tokenizer = BertTokenizerFast.from_pretrained(BASE_MODEL_NAME)
 
     lengths = []
-    for r in rows:
-        enc = tok(r["triple_text"], r["sentence"], truncation=False)
-        lengths.append(len(enc["input_ids"]))
+    for row in rows:
+        encoded = tokenizer(row["question"], row["context"])
+        lengths.append(len(encoded["input_ids"]))
 
-    lengths = np.array(lengths)
-    print(f"[4] train {len(rows)}건 (triple_text, sentence) 페어 토큰 길이 분포")
-    for p in [50, 75, 90, 95, 97, 99, 100]:
-        print(f"    p{p}: {np.percentile(lengths, p):.1f}")
-    print(f"    max: {lengths.max()}  mean: {lengths.mean():.1f}")
+    lengths.sort()
+    n = len(lengths)
+    stats = {
+        "n": n,
+        "min": lengths[0],
+        "p50": percentile(lengths, 0.50),
+        "p90": percentile(lengths, 0.90),
+        "p95": percentile(lengths, 0.95),
+        "p99": percentile(lengths, 0.99),
+        "max": lengths[-1],
+    }
+    for max_len in CANDIDATE_MAX_LENGTHS:
+        truncated_frac = sum(1 for l in lengths if l > max_len) / n
+        stats[f"truncated_frac_at_{max_len}"] = round(truncated_frac, 4)
 
-    p95 = int(np.percentile(lengths, 95))
-    recommended = ((p95 + 7) // 8) * 8  # 8의 배수로 올림 (패딩 효율)
-    print(f"[4] 95th percentile: {p95} -> 8의 배수로 올림: {recommended}")
+    recommended = next(
+        (m for m in CANDIDATE_MAX_LENGTHS if stats[f"truncated_frac_at_{m}"] <= 0.01),
+        CANDIDATE_MAX_LENGTHS[-1],
+    )
+    stats["recommended_max_length"] = recommended
 
-    out = SPLITS_DIR / "max_length_recommendation.json"
-    with out.open("w", encoding="utf-8") as f:
-        json.dump({
-            "p95_raw": p95,
-            "recommended_max_length": recommended,
-            "n_train": len(rows),
-        }, f, ensure_ascii=False, indent=2)
-    print(f"[4] 저장 -> {out}")
+    with open(SPLITS_DIR / "max_length_recommendation.json", "w", encoding="utf-8") as f:
+        json.dump(stats, f, indent=2)
+
+    for k, v in stats.items():
+        print(f"{k}: {v}")
 
 
 if __name__ == "__main__":

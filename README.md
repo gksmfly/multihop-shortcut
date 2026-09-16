@@ -1,105 +1,161 @@
-# KG-Noise-Lite
+# Multihop-Shortcut
 
-BERT 분류기는 KG-to-text 데이터에서 **entity 단위**와 **relation 단위** 라벨
-노이즈를 동일하게 잘 탐지할까, 아니면 한쪽이 구조적으로 더 어려울까?
+BERT 기반 multi-hop QA 모델은 실제로 두 홉의 정보를 모두 종합해서 답하는가,
+아니면 정답이 있는 한쪽 홉만 보고도 맞히는 shortcut을 타는가?
 
 ## 연구 질문
 
-Distant-supervision 방식의 KG-to-text 데이터셋에는 흔히 두 종류의 라벨
-노이즈가 섞여 있다: 트리플의 entity가 문장과 안 맞거나, relation이 안 맞는
-경우다. 이 프로젝트는 `bert-base-cased`를 grounded/noisy 이진 분류기로
-파인튜닝하고, 이 모델과 TF-IDF 코사인 유사도 베이스라인이 두 노이즈 유형을
-동일하게 잘 탐지하는지 측정한다.
+Multi-hop QA(예: "이순신을 그린 영화의 감독은 어느 나라 사람인가?" → 영화
+찾기(1홉) → 감독 국적 찾기(2홉))는 두 단계 추론을 요구하도록 설계된
+태스크다. 하지만 모델이 실제로는 정답이 직접 담긴 문단(answer hop)만 찾아
+읽고, 연결 역할을 하는 문단(bridge hop)은 활용하지 않는 shortcut learning
+현상이 선행 연구(Min et al. 2019, Chen & Durrett 2019, Jiang & Bansal
+2019)에서 지적된 바 있다. 이 프로젝트는 이 현상이 실제로 재현되는지
+`bert-base-cased` 기반 extractive QA 모델로 직접 검증한다 — 완전히 새로운
+발견을 주장하는 게 아니라 재현(replication) 연구이며, 핵심 기여는 8단계
+에러 분석과 9~11단계 원인 진단에서 "언제, 왜" shortcut이 통하는지 유형화하는 데 있다.
 
-**가설:** entity corruption은 표면적 어휘 불일치로 나타나 탐지가 쉬울 것이다
-(예: *서울 → 부산*). relation corruption은 어휘 중첩은 유지한 채 문장의
-의미만 깨뜨리므로 구조적으로 더 어려울 것이다(예: *수도 → 최대도시*).
+**가설 1:** 두 홉 문단을 모두 준 조건(Full)과, 정답이 있는 홉만 준 조건
+(Answer-hop only)의 정확도(EM/F1) 차이가 작다면 → 모델이 bridge 홉을
+실제로 활용하지 않는다는 뜻.
+
+**가설 2:** 정답이 없는 bridge 홉만 준 조건(Bridge-hop only)에서는 정답이
+아예 context에 없으므로 EM/F1은 설계상 거의 0이 나올 수밖에 없다 — 이건
+가설 검증에 쓸 수 없다. 대신 모델이 이 조건에서도 여전히 **높은 확신도로
+그럴듯한(엔티티 타입이 맞는) 오답**을 뱉는지를 본다. 이게 유의미하게
+나타난다면, "bridge 정보 부재를 인지하지 못하는" 별도의 구조적 편향으로
+해석한다.
+
+가설 1·2는 "shortcut이 존재하는가"를 확인한다. 아래 가설 3~5는 그 결과가
+나온 **이후** "왜 그런가"를 규명하는 원인 진단이다.
+
+**가설 3(원인 규명 — 질문 자체의 정보 누출):** Answer-hop only 성능이 유지되는
+이유가 bridge 문단이 아니라 **질문 문장 자체**에 이미 답을 좁힐 단서가 있기
+때문일 수 있다(예: "~를 그린 영화의 감독은 어느 나라 사람인가?"에서
+"감독"·"어느 나라"만으로도 답 후보 타입이 국적으로 좁혀진다). 검증:
+질문에서 bridge 엔티티 언급(대개 `bridge_hop_title`이 질문에 그대로
+등장한다)을 플레이스홀더로 마스킹한 뒤에도 Answer-hop only 성능이 유지되면
+→ 질문의 나머지 부분만으로 이미 답이 좁혀진다는 뜻으로, 가설 3을 지지한다.
+
+**가설 4(원인 규명 — 문단 자체의 자기완결성):** 반대로, 성능 유지의 원인이
+질문이 아니라 **answer_hop 문단 자체**가 이미 자기완결적이기 때문일 수
+있다(문단 안에 bridge 엔티티가 다시 언급되면서 문맥이 완성되는 경우).
+검증: `answer_hop_text` 안에 `bridge_hop_title`이 언급되는 샘플과 안 되는
+샘플로 나눠 Answer-hop only 성능을 비교 — 언급되는 그룹에서만 성능이
+유지된다면 가설 4를 지지한다. 가설 3·4는 상호 배타적이지 않다(둘 다 부분적
+원인일 수 있다) — 두 그룹을 교차해서(질문에 언급/문단에 언급의 2x2) 어느
+쪽이 더 강한 예측 인자인지 본다.
+
+**가설 5(원인 규명 — 사전학습 지식과의 상호작용):** Bridge-hop only에서
+나오는 "확신도 높은 그럴듯한 오답"(가설 2)이 무작위가 아니라, BERT가
+사전학습 때 암기한 사실 지식을 끌어다 쓰는 것일 수 있다(예: bridge 문단에
+이름만 나와도 사전학습 지식으로 국적을 맞히는 경우). 검증: Bridge-hop only에서
+정답(또는 정답과 같은 개체)을 맞춘 샘플들이, 코퍼스 전체에서 자주 언급되는
+"유명" 엔티티에 편중되는지 빈도 분석으로 확인한다.
+
+## Oracle 설정 (스코프 결정)
+
+HotpotQA distractor 설정은 질문당 문단 10개(정답 관련 2개 + 방해 문단 8개)를
+준다. 전부 이어 붙이면 평균 1,000~1,500 토큰으로 `bert-base`의 512 토큰
+한계를 넘겨 truncation이 발생한다. 별도의 문단 랭커(reranker)를 두지 않는
+한, truncation 자체가 "bridge 정보 활용 여부"와 뒤섞이는 교란 요인이 된다.
+
+그래서 이 프로젝트는 **처음부터 끝까지 방해 문단을 전혀 쓰지 않는
+oracle 설정**으로 범위를 한정한다 — 세 조건 모두 golden 문단만으로
+구성한다(Full = 정답 없는 문단 + 정답 있는 문단, 단일 조건들은 그중 하나만).
+이렇게 하면 세 조건 간 유일한 차이는 "bridge 홉이 있는가"뿐이고,
+truncation·문단 개수·문서 검색(retrieval) 성능 같은 다른 변수는 실험에
+아예 등장하지 않는다. (문단 검색을 포함한 end-to-end 시스템 평가는
+스코프 밖 — 아래 "스코프" 참고.)
 
 ## 데이터
 
-- **출처:** [WebNLG](https://huggingface.co/datasets/GEM/web_nlg)
-  (`GEM/web_nlg`, 영어, train split)를 HuggingFace가 자동 변환해둔 parquet
-  파일에서 로드한다 — `load_dataset("GEM/web_nlg", "en")`은 `datasets>=4`에서
-  실패하므로("Dataset scripts are no longer supported"),
-  [`scripts/01_load_webnlg.py`](scripts/01_load_webnlg.py)가
-  `refs/convert/parquet` 리비전을 직접 읽는다. 필드 구조는 원본과 동일하다:
-  `input` = 트리플 문자열(`"Subject | relation | Object"`), `target` = 참조
-  문장, `category` = 도메인 카테고리.
-- 단일 트리플 예시만 사용한다(35,426건 중 7,630건) — 여러 트리플을 서술하는
-  문장은 "문장의 어느 부분이 어느 트리플에 대응하는지"가 모호해지므로
-  스코프 밖으로 제외한다(아래 스코프 참고).
-- **Positive:** 원본 (트리플, 문장) 쌍.
-- **Negative**, 두 종류를 positive마다 하나씩 생성(positive :
-  entity_corruption : relation_corruption = 1 : 1 : 1, 총 22,890행):
-  - `entity_corruption` — 트리플의 subject 또는 object(50/50)를 코퍼스
-    전체 entity 풀에서 다른 값으로 치환. 문장은 그대로 둔다.
-  - `relation_corruption` — 트리플의 relation을 코퍼스 전체 relation
-    풀(346개 고유 relation)에서 다른 값으로 치환. 문장은 그대로 둔다.
+**HotpotQA** (distractor 설정, HuggingFace `hotpotqa/hotpot_qa`) — 원래
+`hotpot_qa`(네임스페이스 없는 레포)는 `datasets>=4`의 스크립트 기반 로딩
+폐지로 실패하므로, 네임스페이스가 있는 미러 `hotpotqa/hotpot_qa`를 쓴다
+([`scripts/01_load_hotpotqa.py`](scripts/01_load_hotpotqa.py)).
+
+**필터링** (`type == "bridge"`인 샘플만; comparison형은 홉 구조가 다르고
+답이 보통 yes/no라 스코프 밖):
+
+1. `supporting_facts`가 정확히 서로 다른 2개 문단 제목에서만 나오는 샘플만
+   유지(순수 2-hop).
+2. 정답 문자열이 두 golden 문단 중 **정확히 하나에만** (대소문자 구분,
+   substring) 등장하는 샘플만 유지 — 정답이 담긴 쪽을 `answer_hop`, 나머지를
+   `bridge_hop`으로 태깅한다.
+   - 정답이 **어느 쪽에도** 없으면 제외한다(답이 두 문단의 정보를 합성해야만
+     나오는 경우 — extractive span 모델로는 애초에 학습이 불가능해서 스코프
+     밖이다).
+   - 정답이 **양쪽 다**에 있으면 제외한다(대명사·흔한 숫자·일반 명사의
+     우연한 일치 — "bridge_hop에는 정답이 없다"는 가설 2의 전제 자체가
+     깨지므로 반드시 걸러야 한다).
+
+HF `train` split → `data/processed/train_pool.jsonl`(추후 우리가 직접
+train/val로 재분할). HF `validation` split(공식 dev set, 정답 라벨 있음) →
+`data/processed/test.jsonl`(3조건 평가에 쓸 최종 held-out set, 건드리지
+않고 그대로 둔다).
+
+**필터링 결과** (`data/processed/load_filter_stats.json`):
+
+| split | 원본 | bridge 아님 | 순수 2-hop 아님 | 답 0곳 | 답 양쪽 | 최종 |
+|---|---|---|---|---|---|---|
+| train_pool | 90,447 | 17,456 | 0 | 0 | 19,902 | **53,089** |
+| test | 7,405 | 1,487 | 0 | 0 | 1,184 | **4,734** |
+
+이 데이터셋의 bridge형 샘플은 이미 전부 순수 2-hop이었다(3개 이상 문단에
+걸친 경우 없음). "답이 양쪽에 있어서 제외"된 비율이 전체 bridge 샘플의
+약 27%로 상당히 크다 — 흔한 단어·연도 등의 우연한 일치가 의외로 잦다는
+뜻이며, 이 필터를 빼면 가설 2 검증이 처음부터 오염됐을 것이다.
+
+## 평가 조건
+
+같은 질문에 대해 context만 다르게 구성(전부 oracle — 방해 문단 없음):
+
+| 조건 | Context 구성 | 정답이 context에 있는가 |
+|---|---|---|
+| Full | answer_hop + bridge_hop | 있음 |
+| Answer-hop only | answer_hop만 | 있음 |
+| Bridge-hop only | bridge_hop만 | **없음(설계상)** |
 
 ## 파이프라인
 
-| 단계 | 스크립트 | 내용 |
-|---|---|---|
-| 1 | [`scripts/01_load_webnlg.py`](scripts/01_load_webnlg.py) | WebNLG 로드, 단일 트리플만 필터링, `"S \| R \| O"` 파싱, 중복 제거. |
-| 2 | [`scripts/02_generate_negatives.py`](scripts/02_generate_negatives.py) | positive마다 `entity_corruption`과 `relation_corruption` negative를 하나씩 생성. |
-| 3 | [`scripts/03_split_dataset.py`](scripts/03_split_dataset.py) | `pair_id` 단위로 70/15/15 분할(같은 pair의 3행은 항상 같은 split에), `category`로 stratify. |
-| 4 | [`scripts/04_analyze_lengths.py`](scripts/04_analyze_lengths.py) | train split에서 토큰화된 `(triple_text, sentence)` 길이를 측정해 `max_length`를 추천. |
-| 5 | [`scripts/05_train_bert.py`](scripts/05_train_bert.py) | `bert-base-cased`를 이진 sequence-pair 분류기로 파인튜닝, validation F1(macro) 기준 early stopping. |
-| 6 | [`scripts/06_tfidf_baseline.py`](scripts/06_tfidf_baseline.py) | TF-IDF + 코사인 유사도 베이스라인; threshold는 validation F1(macro) grid search로 선택. |
-| 7 | [`scripts/07_evaluate_compare.py`](scripts/07_evaluate_compare.py) | 두 모델의 test 지표를 표 하나로 합친다. |
-| 8 | [`scripts/08_error_analysis.py`](scripts/08_error_analysis.py) | **핵심 결과:** 두 모델 모두 `entity_corruption` vs `relation_corruption`별 recall 분해 + 정성적 오류 사례. |
+| 단계 | 스크립트 | 내용 | 상태 |
+|---|---|---|---|
+| 1 | [`scripts/01_load_hotpotqa.py`](scripts/01_load_hotpotqa.py) | HotpotQA 로드, bridge형·순수 2-hop 필터링, answer_hop/bridge_hop 태깅. | 완료 |
+| 2 | [`scripts/02_build_eval_conditions.py`](scripts/02_build_eval_conditions.py) | test set의 각 질문마다 Full/Answer-hop only/Bridge-hop only 3조건 context를 생성. | 완료 |
+| 3 | [`scripts/03_split_dataset.py`](scripts/03_split_dataset.py) | train_pool을 train/val로 분할(qid 단위). | 완료 |
+| 4 | [`scripts/04_analyze_lengths.py`](scripts/04_analyze_lengths.py) | 토큰화된 (question, context) 길이 분포 확인, max_length 결정. | 완료 |
+| 5 | [`scripts/05_train_bert.py`](scripts/05_train_bert.py) | `bert-base-cased`를 SQuAD 스타일 extractive QA로 파인튜닝. **Full 조건 train 데이터로만 학습** — shortcut 여부 조작은 테스트 단계에서만. | 완료 |
+| 6 | [`scripts/06_evaluate_conditions.py`](scripts/06_evaluate_conditions.py) | 학습된 모델을 test set의 3조건 각각에 대해 추론, EM/F1 + 예측 span의 confidence(softmax) 기록. | 완료 |
+| 7 | [`scripts/07_confidence_bias_analysis.py`](scripts/07_confidence_bias_analysis.py) | 가설 2 전용: Full/Answer-hop-only 대비 Bridge-hop-only의 confidence 하락폭 분포, 예측 span의 엔티티 타입이 기대 답 타입과 맞는 비율. | 완료 |
+| 8 | [`scripts/08_error_taxonomy.py`](scripts/08_error_taxonomy.py) | **핵심 결과.** Answer-hop-only가 Full과 동일하게 맞춘 샘플(질문의 타입 제약, n-gram 단서)과 Bridge-hop-only 오답(타입 일치 여부)을 유형화 + 케이스 스터디. | 완료 |
+| 9 | [`scripts/09_question_masking_probe.py`](scripts/09_question_masking_probe.py) | 가설 3 전용: 질문에서 bridge 엔티티 언급을 마스킹한 뒤 Answer-hop only를 재평가, 마스킹 전후 EM/F1 비교. | 완료 |
+| 10 | [`scripts/10_self_containment_split.py`](scripts/10_self_containment_split.py) | 가설 4 전용: `answer_hop_text`에 `bridge_hop_title` 언급 여부로 그룹을 나눠 Answer-hop only 성능 비교(가설 3과 2x2 교차). | 완료 |
+| 11 | [`scripts/11_fame_bias_analysis.py`](scripts/11_fame_bias_analysis.py) | 가설 5 전용: Bridge-hop only에서 정답을 맞힌 샘플의 정답 엔티티가 코퍼스 전체에서 얼마나 자주 언급되는지(유명도 프록시) 빈도 분석. | 완료 |
 
 ## 실험 설계 원칙
 
-각 스크립트의 docstring에 흩어져 있는 "왜 이렇게 했는가"를 한곳에 모았다.
-새 알고리즘을 만든 프로젝트는 아니지만, 비교가 공정하려면 아래 선택들이
-전부 의도적으로 필요했다.
-
-- **Corruption은 슬롯 하나만, 나머지는 전부 고정.** `entity_corruption`과
-  `relation_corruption` 모두 트리플 문자열 안 슬롯 하나만 바꾸고 문장 전체와
-  트리플의 나머지 두 슬롯은 그대로 둔다([`scripts/02`](scripts/02_generate_negatives.py)).
-  entity corruption이 문장까지 같이 바꾼다든가 하면, "어느 쪽이 더
-  탐지하기 어려운가"라는 비교 자체가 애초에 불공정해진다.
-- **치환값은 코퍼스 자체 풀에서만 뽑는다.** 아무 값이나 무작위로 넣지 않고,
-  같은 코퍼스에 실제로 등장하는 subject/object/relation 풀에서만 치환값을
-  고른다([`scripts/02`](scripts/02_generate_negatives.py)의 `other()`). 너무
-  뻔하게 이상한 negative(예: 공항 이름 자리에 색깔 이름)를 만들면 탐지가
-  쉬워져서 비교가 무의미해진다.
-- **대응이 모호한 샘플은 애초에 제외.** 문장 하나가 트리플 여러 개를
-  서술하면 "어느 트리플에 대응하는가"가 불명확해지므로, 단일 트리플
-  샘플만 쓴다([`scripts/01`](scripts/01_load_webnlg.py),
-  [`scripts/11`](scripts/11_load_dart_wikitable.py)).
-- **분할은 pair_id 단위로, leakage를 검증까지 한다.** 같은 원본에서 나온
-  positive/entity_corruption/relation_corruption 3행이 train과 test에
-  흩어지면 모델이 답을 외워서 맞힐 수 있다. `pair_id` 단위로 먼저 나누고,
-  split 간 `pair_id` 중복이 0건인지 매번 자동으로
-  확인한다([`kg_noise/splitting.py`](src/kg_noise/splitting.py)).
-- **성격이 다른 두 모델을 나란히 둔다.** BERT(문맥 이해 가능)와
-  TF-IDF(표면 어휘만 봄)를 같이 비교해야, 격차가 "정말 어려운 문제"인지
-  "표면 신호가 아예 없어서"인지 구분할 수 있다
-  ([`scripts/05`](scripts/05_train_bert.py),
-  [`scripts/06`](scripts/06_tfidf_baseline.py)).
-- **평가를 corruption 유형별로 쪼갠다.** 전체 accuracy 하나로 뭉뚱그리면
-  entity/relation 격차 자체가 안 보인다. recall을 유형별로 분리 계산하는
-  게 핵심 연구 질문에 답하는 유일한 방법이다([`scripts/08`](scripts/08_error_analysis.py)).
-- **도메인 선택도 변수 하나를 조작하는 실험이다.** DART WikiSQL/
-  WikiTableText는 우연히 고른 게 아니라 "relation 이름이 자연어에 가까운
-  도메인"이라는 조건에서 역산해서 골랐다 — 나머지 방법론(corruption 규칙,
-  모델, 평가 방식)은 전부 고정한 채 이 변수 하나만
-  바꿨다([`scripts/11`](scripts/11_load_dart_wikitable.py)).
-- **Zero-shot과 재학습을 목적에 맞게 구분해서 쓴다.** NYT-FB(부록)는
-  "WebNLG로만 학습된 모델이 실제 노이즈 데이터에서 어떻게 행동하는가"를
-  보려는 것이라 zero-shot이 맞다. 반면 DART는 "같은 학습 절차, 다른
-  도메인"이라는 통제된 비교가 목적이라 반드시 재학습해야 한다 — zero-shot을
-  쓰면 도메인 전이 실패라는 다른 요인이 섞여 들어간다
-  ([`scripts/09`](scripts/09_nyt_case_study.py),
-  [`scripts/15`](scripts/15_train_bert_dart.py)).
-- **예상과 다르게 나온 결과의 교란 요인을 숨기지 않는다.** DART 실험은
-  relation 자연어성만 바꾼 게 아니라 표본 크기와 relation당 예시 수도
-  같이 줄었다. 이 사실을 결과와 함께 명시하고, 두 요인을 가를 다음
-  실험(WebNLG 서브샘플링 ablation)을 구체적으로
-  제안한다([`scripts/19`](scripts/19_compare_domains.py), 아래 "도메인
-  일반화 검증" 참고).
+- **Oracle 설정으로 변수를 하나로 좁힌다.** 방해 문단을 아예 안 써서
+  truncation·검색 성능이라는 다른 변수가 섞이지 않게 한다(위 "Oracle 설정"
+  참고).
+- **Bridge-hop only는 EM/F1으로 채점하지 않는다.** 정답이 context에 없으므로
+  EM/F1은 정의상 0에 수렴하도록 설계돼 있다 — 이 조건에서 의미 있는 지표는
+  confidence와 예측 span의 편향(엔티티 타입 일치 여부)이다(가설 2, 7단계).
+- **양쪽 문단에 정답이 우연히 겹치는 샘플은 제외한다.** bridge_hop에 정답
+  문자열이 우연히 들어 있으면 "bridge에는 정답이 없다"는 전제 자체가
+  깨지므로, 1단계 필터링에서 반드시 걸러낸다.
+- **학습은 Full 조건으로만, shortcut 조작은 테스트에서만.** 표준적인
+  학습 절차를 그대로 쓰고, "어느 홉을 보여주는가"는 오직 평가 단계의
+  변수로만 조작한다(5~6단계).
+- **재현 연구임을 숨기지 않는다.** 이 현상 자체는 선행 연구에 이미
+  보고돼 있다. 이 프로젝트의 기여는 "존재를 증명"하는 데 있지 않고, 8단계
+  에러 분석과 9~11단계 원인 진단에서 shortcut이 통하는/안 통하는 조건과
+  그 이유를 구체적으로 유형화하는 데 있다.
+- **질문 마스킹은 삭제가 아니라 플레이스홀더 치환.** 가설 3 검증(9단계)에서
+  bridge 엔티티 언급을 질문에서 그냥 지우면 질문 길이·구문 구조가 깨져서
+  "정보가 없어져서"가 아니라 "문장이 어색해져서" 성능이 떨어질 수 있다.
+  `[ENTITY]` 같은 플레이스홀더로 치환해 길이와 구문은 보존하고 엔티티
+  정보만 제거한다.
 
 ## 환경 설정
 
@@ -108,9 +164,9 @@ Distant-supervision 방식의 KG-to-text 데이터셋에는 흔히 두 종류의
 
 ```bash
 python3 -m venv .venv
-.venv/bin/pip install torch==2.6.0 --index-url https://download.pytorch.org/whl/cu124
-.venv/bin/pip install transformers datasets scikit-learn numpy accelerate
-.venv/bin/pip install -e . --no-deps
+.venv/bin/python -m pip install torch==2.6.0 --index-url https://download.pytorch.org/whl/cu124
+.venv/bin/python -m pip install transformers datasets scikit-learn numpy accelerate
+.venv/bin/python -m pip install -e . --no-deps
 ```
 
 (`pip install torch`만 실행하면 최신 CUDA 빌드를 받아온다 — 작성 시점 기준
@@ -118,10 +174,10 @@ CUDA 13 — 그런데 이게 오래된 드라이버에서는 `torch.cuda.is_avai
 조용히 실패한다. 드라이버가 실제로 지원하는 CUDA 빌드로 고정할 것;
 `nvidia-smi`로 드라이버가 지원하는 최대 CUDA 버전을 확인할 수 있다.)
 
-마지막 줄은 이 저장소 자체의 [`src/kg_noise/`](src/kg_noise) 패키지를
-editable 모드로 설치한다(런타임 의존성은 바로 위에서 이미 설치했으므로
-`--no-deps`) — 이 덕분에 모든 `scripts/NN_*.py` 파일이 동일한 경로/IO/지표
-헬퍼를 중복 정의하는 대신 `from kg_noise import ...`로 가져다 쓸 수 있다.
+마지막 줄은 이 저장소 자체의 [`src/multihop_shortcut/`](src/multihop_shortcut)
+패키지를 editable 모드로 설치한다 — 이 덕분에 모든 `scripts/NN_*.py` 파일이
+동일한 경로/IO 헬퍼를 중복 정의하는 대신 `from multihop_shortcut import ...`로
+가져다 쓸 수 있다.
 
 ## 디렉터리 구조
 
@@ -131,199 +187,149 @@ editable 모드로 설치한다(런타임 의존성은 바로 위에서 이미 �
 ├── README.md
 ├── .gitignore
 ├── src/
-│   └── kg_noise/            # 여러 스크립트가 공유하는 라이브러리 코드
+│   └── multihop_shortcut/  # 여러 스크립트가 공유하는 라이브러리 코드
 │       ├── __init__.py
-│       ├── paths.py          # ROOT 및 data/models 하위 경로 상수
-│       ├── io_utils.py       # JSONL 읽기/쓰기 (load_jsonl, save_jsonl)
-│       ├── constants.py      # 라벨 인코딩(LABEL_NOISY/LABEL_GROUNDED), 베이스 모델명
-│       ├── metrics.py        # BERT·TF-IDF가 공통으로 쓰는 분류 지표
-│       ├── inference.py      # 파인튜닝된 분류기 로딩 + 추론 (스크립트 9, 10용)
-│       ├── negatives.py      # entity/relation corruption 생성 (스크립트 2, 12용)
-│       └── splitting.py      # pair_id 단위 stratified split (스크립트 3, 13용)
+│       ├── paths.py              # ROOT 및 data/models 하위 경로 상수
+│       ├── io_utils.py           # JSONL 읽기/쓰기 (load_jsonl, save_jsonl)
+│       ├── constants.py          # 베이스 모델명, hop 라벨 상수
+│       ├── metrics.py            # SQuAD 스타일 EM/F1 (normalize_answer 포함)
+│       ├── inference.py          # 배치 QA 추론 (run_qa_inference, 6·9단계 공용)
+│       └── typing_heuristics.py  # 규칙 기반 answer 타입 분류(가설 2/5용)
 ├── scripts/                 # 번호가 매겨진 파이프라인 진입점, 순서대로 실행
-│   ├── 01_load_webnlg.py             ┐
-│   ├── 02_generate_negatives.py      │ 본실험 (WebNLG)
-│   ├── 03_split_dataset.py           │
+│   ├── 01_load_hotpotqa.py           ┐
+│   ├── 02_build_eval_conditions.py   │
+│   ├── 03_split_dataset.py           │ 데이터 준비
 │   ├── 04_analyze_lengths.py         │
-│   ├── 05_train_bert.py              │
-│   ├── 06_tfidf_baseline.py          │
-│   ├── 07_evaluate_compare.py        │
-│   ├── 08_error_analysis.py          ┘
-│   ├── 09_nyt_case_study.py          ┐ 부록: NYT-FB 정성적 탐침
-│   ├── 10_nyt_notrunc_comparison.py  ┘ (아래 참고)
-│   ├── 11_load_dart_wikitable.py     ┐
-│   ├── 12_generate_negatives_dart.py │
-│   ├── 13_split_dataset_dart.py      │
-│   ├── 14_analyze_lengths_dart.py    │ 도메인 일반화 검증: DART
-│   ├── 15_train_bert_dart.py         │ (아래 참고)
-│   ├── 16_tfidf_baseline_dart.py     │
-│   ├── 17_evaluate_compare_dart.py   │
-│   ├── 18_error_analysis_dart.py     │
-│   └── 19_compare_domains.py         ┘
-├── data/                     # 파이프라인 입출력 (raw/processed/splits/errors)
-└── models/                   # 파인튜닝 체크포인트 (.gitignore로 추적 제외, scripts/05·15로 재생성 가능)
+│   ├── 05_train_bert.py              ┘ 학습(Full 조건만)
+│   ├── 06_evaluate_conditions.py     ┐
+│   ├── 07_confidence_bias_analysis.py│ 가설 1·2 평가
+│   ├── 08_error_taxonomy.py          ┘ (핵심 결과)
+│   ├── 09_question_masking_probe.py  ┐
+│   ├── 10_self_containment_split.py  │ 가설 3·4·5 원인 진단
+│   └── 11_fame_bias_analysis.py      ┘
+├── data/                    # 파이프라인 입출력 (raw/processed/splits/errors)
+└── models/                  # 파인튜닝 체크포인트 (.gitignore로 추적 제외)
 ```
 
-각 `scripts/NN_*.py` 파일은 재사용 로직을 담는 곳이 아니라 `src/kg_noise/`를
-불러와 순서대로 실행만 하는 얇은 진입점이다. 여러 스크립트에서 같은 코드가
-필요해지면 그 로직은 `scripts/`가 아니라 `src/kg_noise/`에 추가한다.
+각 `scripts/NN_*.py` 파일은 재사용 로직을 담는 곳이 아니라
+`src/multihop_shortcut/`를 불러와 순서대로 실행만 하는 얇은 진입점이다.
+여러 스크립트에서 같은 코드가 필요해지면 그 로직은 `scripts/`가 아니라
+`src/multihop_shortcut/`에 추가한다.
 
 ## 사용법
 
 ```bash
-.venv/bin/python scripts/01_load_webnlg.py
-.venv/bin/python scripts/02_generate_negatives.py
+.venv/bin/python scripts/01_load_hotpotqa.py
+.venv/bin/python scripts/02_build_eval_conditions.py
 .venv/bin/python scripts/03_split_dataset.py
 .venv/bin/python scripts/04_analyze_lengths.py
 .venv/bin/python scripts/05_train_bert.py
-.venv/bin/python scripts/06_tfidf_baseline.py
-.venv/bin/python scripts/07_evaluate_compare.py
-.venv/bin/python scripts/08_error_analysis.py
+.venv/bin/python scripts/06_evaluate_conditions.py
+.venv/bin/python scripts/07_confidence_bias_analysis.py
+.venv/bin/python scripts/08_error_taxonomy.py
+.venv/bin/python scripts/09_question_masking_probe.py
+.venv/bin/python scripts/10_self_containment_split.py
+.venv/bin/python scripts/11_fame_bias_analysis.py
 ```
 
-기기에 GPU가 2개 이상 있으면, [`scripts/05_train_bert.py`](scripts/05_train_bert.py)는
-torch를 import하기 전에 `CUDA_VISIBLE_DEVICES=0`을 고정한다 — 이게 없으면
-HuggingFace `Trainer`가 보이는 모든 GPU에 모델을 `DataParallel`로 감싸려다
-이 환경에서 NCCL 오류로 죽는다.
+5·6·9번 스크립트는 GPU가 필요하고 `CUDA_VISIBLE_DEVICES=1`을 코드 안에서
+고정한다(이 기기에 GPU가 2개 있고, 1번을 쓰기로 했다 — 필요하면 스크립트
+상단의 `os.environ.setdefault(...)` 줄을 바꾼다).
 
 ## 결과
 
-Test set (3,435행: positive 1,145 / entity_corruption 1,145 /
-relation_corruption 1,145):
+`bert-base-cased`를 Full 조건 train 47,780건으로 3 epoch 파인튜닝했다
+(train loss 0.641 → eval loss 0.725, val loss 기준 best checkpoint 선택).
+Test set 4,734건에 3조건 평가를 돌린 결과는 다음과 같다.
 
-| 지표 | BERT (fine-tuned) | TF-IDF baseline |
-|---|---|---|
-| Accuracy | 0.9875 | 0.5872 |
-| Precision (macro) | 0.9850 | 0.5418 |
-| Recall (macro) | 0.9869 | 0.5430 |
-| F1 (macro) | 0.9859 | 0.5422 |
-| Recall (noisy) | 0.9886 | 0.6755 |
-| Precision (noisy) | 0.9925 | 0.6962 |
-| F1 (noisy) | 0.9906 | 0.6857 |
+### 조건별 비교 (`data/errors/condition_comparison.json`)
 
-**핵심 결과 — corruption 유형별 recall:**
-
-| 모델 | Entity corruption recall | Relation corruption recall | 격차 |
-|---|---|---|---|
-| BERT (fine-tuned) | 0.9965 | 0.9808 | +0.0157 |
-| TF-IDF baseline | 0.7694 | 0.5817 | +0.1878 |
-
-**가설은 두 모델 모두에서 성립한다.** BERT는 격차가 작다(더 어려운 상황에서도
-relation corruption을 잘 탐지한다). 반면 TF-IDF는 격차가 크다:
-`entity_corruption`의 평균 코사인 유사도(0.104)는 정상 쌍(0.178)보다 뚜렷이
-낮지만, `relation_corruption`(0.166)은 정상 쌍과 거의 구분되지 않는다 —
-relation 이름(`cityServed`, `foundedBy` 등)은 맞든 틀리든 문장에 문자 그대로
-등장하는 일이 드물어서, 어휘 중첩 기반 베이스라인은 활용할 신호가 거의 없기
-때문이다. 전체 분해, 정성적 오류 사례, 보조 패턴(숫자 object의 entity
-corruption이 명명된 entity corruption보다 어렵다는 점)에 대한 설명은
-[`data/errors/error_analysis_report.md`](data/errors/error_analysis_report.md)에
-있다.
-
-## 도메인 일반화 검증 — DART(WikiSQL/WikiTableText)
-
-**질문:** WebNLG의 relation은 DBpedia/Freebase 스타일 카멜케이스 식별자다
-(`cityServed`, `foundedBy`) — 위 핵심 결과(Step 8)는 이런 식별자가 문장
-표면에 거의 등장하지 않아서 relation corruption이 entity corruption보다
-탐지하기 어렵다는 것이었다. 그렇다면 relation 이름이 애초에 자연어에 가까운
-도메인에서는 이 격차가 좁혀질까?
-
-[`scripts/11_load_dart_wikitable.py`](scripts/11_load_dart_wikitable.py)는
-[DART](https://huggingface.co/datasets/GEM/dart)(WikiSQL, WikiTableText,
-WebNLG, E2E를 합친 오픈도메인 record-to-text 데이터셋)에서 WikiSQL/
-WikiTableText 계열만 추출한다. 이 서브셋의 relation은 위키피디아 표의
-컬럼 헤더(`COLLEGE`, `CITY`, `FEET`)라 WebNLG보다 훨씬 자연어에 가깝다.
-단일 트리플 샘플 2,366건을 얻어(WebNLG 방법론과 동일하게 `category` 대신
-소스 이름으로 stratify), Step 1~8과 정확히 같은 절차(`scripts/12`~`18`)로
-entity/relation corruption을 만들고 BERT를 새로 파인튜닝해 재현했다 — 기존
-WebNLG 모델을 재사용(zero-shot)하지 않고 이 도메인 전용으로 다시 학습해야
-"같은 학습 절차, 다른 도메인"이라는 통제된 비교가 된다.
-
-**결과는 예상과 정반대였다.** relation 이름이 자연어에 가까워지면 격차가
-좁혀질 거라 예상했지만, 실제로는 두 모델 모두 격차가 훨씬 크게 벌어졌다.
-
-| 도메인 | 모델 | Entity corruption recall | Relation corruption recall | 격차 |
+| 조건 | EM | F1 | 평균 confidence | 평균 cls_prob |
 |---|---|---|---|---|
-| WebNLG | BERT (fine-tuned) | 0.9965 | 0.9808 | +0.0157 |
-| WebNLG | TF-IDF baseline | 0.7694 | 0.5817 | +0.1878 |
-| DART | BERT (fine-tuned) | 0.9803 | 0.6930 | **+0.2873** |
-| DART | TF-IDF baseline | 0.8338 | 0.5239 | +0.3099 |
+| Full | 0.5862 | 0.7597 | 0.6905 | 0.0001 |
+| Answer-hop only | **0.6158** | **0.7670** | 0.7256 | 0.0001 |
+| Bridge-hop only | 0.0046 | 0.1091 | 0.4541 | 0.0013 |
 
-BERT 기준 격차가 1.6%p에서 28.7%p로 거의 18배 벌어졌다.
+**가설 1은 강하게 지지된다.** Answer-hop only가 Full보다 오히려 EM +3.0pt,
+F1 +0.7pt 더 높다 — bridge 문단을 더 준다고 도움이 되기는커녕, 정답 문단을
+더 긴 context 속에서 찾아야 하는 부담만 늘어 성능이 살짝 낮아진다. 모델이
+두 홉을 종합하는 게 아니라 사실상 답이 있는 쪽 문단만 활용한다는 뜻이다.
 
-**교란 요인:** DART로 도메인만 바꾼 게 아니라 표본 크기도 함께 크게
-줄었다(train 16,023행 → 4,968행, 31%) — 게다가 relation 어휘는 오히려 더
-길게 꼬리를 문다(고유 relation 346개 → 1,066개). 그 결과 relation당 평균
-예시 수가 22.1개에서 2.2개로 10분의 1이 됐다. 그래서 이 결과만으로는
-"relation 이름의 자연어성은 격차와 무관하다"와 "relation 판정은 entity
-판정보다 학습 데이터가 훨씬 더 많이 필요해서, 데이터가 줄면 relation
-recall이 불균형하게 더 떨어진다"는 두 가설을 가를 수 없다. 이 둘을
-분리하려면 WebNLG train을 DART와 같은 크기(4,968행)로 서브샘플링해서
-같은 실험을 반복하는 ablation이 필요하다(relation 자연어성은 WebNLG
-그대로 유지한 채 표본 크기만 맞추는 대조군). 아직 실행하지 않았다 — 아래
-향후 과제 참고.
+### 가설 2 — Confidence/Bias (`data/errors/confidence_bias_report.md`)
 
-전체 수치와 corruption_type별 오분류 사례는
-[`data/errors/domain_comparison_report.md`](data/errors/domain_comparison_report.md)(요약)와
-[`data/errors/dart_error_analysis_report.md`](data/errors/dart_error_analysis_report.md)(상세)에
-있다.
+Bridge-hop only는 정답이 context에 없는데도 평균 confidence가 0.454에
+그친다(Full 대비 하락폭 0.236에 불과). 샘플의 **42.7%는 confidence
+하락폭이 0.1 이하**다. cls_prob(모델이 "답 없음"에 해당하는 [CLS] 위치에
+준 확률)는 세 조건 모두 사실상 0(0.0001~0.0013)이라, 증거가 없어도 모델은
+"모르겠다"는 신호를 거의 내지 않는다. Bridge-hop only 오답 중
+**69.5%는 정답과 같은 coarse 타입**(고유명사/숫자/날짜)을 골랐다 — 무작위
+추측이 아니라 그럴듯한 오답을 고르는 구조적 편향으로 해석된다.
+
+### 핵심 결과 — 에러 taxonomy (`data/errors/error_taxonomy_report.md`)
+
+Full을 맞춘 2,775건 중 **90.6%(2,515건)는 Answer-hop only로도 그대로
+맞혔다**(`shortcut_success`). 나머지 9.4%(260건)만 bridge 문단이 실제로
+필요했다(`bridge_needed`).
+
+| 그룹 | n | 질문 타입-제약 단서 비율 | 질문-문단 단어 중첩(평균) | bridge 제목이 질문에 | bridge 제목이 answer_hop에 |
+|---|---|---|---|---|---|
+| shortcut_success | 2,515 | 25.1% | 0.433 | 50.7% | 20.6% |
+| bridge_needed | 260 | 11.9% | 0.424 | 26.5% | 56.2% |
+
+### 가설 3 — 질문 마스킹 (`data/errors/question_masking_report.md`)
+
+질문에 bridge 엔티티 이름이 문자 그대로 등장하는 서브셋(2,223건, 47.0%)에서
+그 이름을 `[ENTITY]`로 마스킹해도 Answer-hop only의 EM은 0.646 → 0.641
+(하락폭 0.005), F1은 0.804 → 0.800(하락폭 0.003)으로 거의 변화가 없다.
+**가설 3을 강하게 지지한다** — 모델은 질문 속 구체적인 bridge 엔티티 이름을
+몰라도, 질문의 나머지 어휘(타입 제약)만으로 answer_hop 문단에서 답을
+찾아낸다.
+
+### 가설 4 — 문단 자기완결성 (`data/errors/self_containment_report.md`)
+
+예상과 반대로 나왔다. bridge 제목이 answer_hop 문단 안에 재언급되는
+그룹의 Answer-hop only EM(0.780)이, 언급되지 않는 그룹(0.946)보다 오히려
+**낮았다**. 즉 "문단이 bridge 엔티티를 다시 언급해서 자기완결적이 된다"는
+가설 4의 메커니즘은 이 데이터에서 지지되지 않는다 — 오히려 bridge 제목이
+answer_hop에 재언급되는 경우는(위 taxonomy에서 `bridge_needed` 그룹의
+56.2%를 차지했듯) 정말로 두 홉을 종합해야 하는 어려운 문제와 상관관계가
+있어 보인다. 가설 3(질문 마스킹)의 신호가 훨씬 강했다는 점에서, shortcut의
+주된 원인은 문단의 자기완결성보다는 **질문 자체의 타입 제약**으로 잠정
+결론짓는다.
+
+### 가설 5 — 유명도 편향 (`data/errors/fame_bias_report.md`)
+
+Bridge-hop only인데도 정답을 정확히 맞힌 사례가 22/4,734건(0.46%) 있었다
+— bridge_hop_text에는 정답 문자열이 없도록 이미 필터링했으므로, 이 22건은
+문맥 복사로는 설명되지 않는다. 다만 "코퍼스 전체에서 bridge 엔티티가 다른
+질문의 context로 얼마나 자주 등장하는가"를 유명도 프록시로 썼을 때, 이
+22건의 평균 유명도(2.27)는 나머지(3.24)보다 오히려 **낮았다** — 이
+프록시로는 가설 5가 지지되지 않는다(n=22로 표본도 작다). 케이스 스터디를
+직접 보면 여러 건은 순수 암기라기보다 bridge_hop_text 안의 표현을 다른
+말로 바꿔 쓴 것에 가깝다(예: 질문 자체에 답의 일부 단어가 이미 들어있는
+경우) — 유명도 프록시 자체의 한계일 수 있다. 실제 "사전학습 지식 사용
+여부"를 가리려면 별도 방법(예: context 자체를 아예 안 주고 질문만으로
+zero-shot 추론)이 필요하다(아래 "향후 과제").
 
 ## 스코프
 
 의도적으로 제외했고, 향후 과제로 남겨둔 것들:
-- 다른 노이즈 유형(트리플 순서 오류, 다중 트리플 혼합, 암묵적 relation 노이즈).
-- 실제 distant-supervision 파이프라인 — 이 프로젝트는 깨끗한 WebNLG에 합성
-  노이즈를 주입하는 방식이고, 실제로 노이즈가 섞인 데이터(예: NYT-FB)를
-  다루지 않는다. 1~8단계는 실제 distant-supervision 데이터에 대한 accuracy를
-  주장하지 않는다. 그 수치를 아예 낼 수 없는 이유는 아래 부록 참고.
-
-## 부록 — NYT-FB 정성적 탐침 (일반화 벤치마크 아님)
-
-[`scripts/09_nyt_case_study.py`](scripts/09_nyt_case_study.py)는 WebNLG로만
-학습된 BERT 모델을 NYT-FB(`xiaobendanyn/nyt10`)에서 무작위로 뽑은 30개
-문장에 대해 zero-shot으로 돌린다. 두 가지 트리플 표기 방식 — 원본 Freebase
-relation 경로(`/people/person/nationality`)와 단순 자연어 변환(경로 마지막
-토큰만, 예: `nationality`) — 로 각각 추론해서, relation *표기*만으로
-예측이 달라지는지 본다.
-
-**이건 accuracy 수치를 내지 않는다.** NYT-FB는 distant-supervision 데이터라
-"이 문장이 실제로 이 트리플을 나타내는가"에 대한 사람 검증 라벨이 없다.
-그래서 예측을 채점할 기준 자체가 없다. 출력물
-(`data/errors/nyt_case_study_report.md`)은 사람이 직접 사례를 고르기 위한
-예측 나열 표일 뿐, 지표가 아니다.
-
-읽기 전에 알아둘 것 두 가지:
-- **모델은 30건 중 29건에서 "noisy"로 예측이 쏠렸다**, 두 표기 방식 모두에서
-  (표기 간 예측이 뒤집힌 건 0건). 유일한 예외는 relation 단어가 문장에 문자
-  그대로 등장한 사례였다("... founders of Endemol ..." / relation
-  `founders`) — 8단계에서 확인한 "모델이 relation 토큰과 문장의 어휘
-  중첩에 의존한다"는 결과와 일치한다.
-- **이게 단순히 truncation 때문 아닐까?** `max_length=48`은 훨씬 짧은
-  WebNLG 문장에 맞춰 정해졌는데(4단계), NYT 문장 30건 중 25건이 이 길이를
-  초과한다 — 일부는 길이의 절반 이상을 초과한다.
-  [`scripts/10_nyt_notrunc_comparison.py`](scripts/10_nyt_notrunc_comparison.py)가
-  같은 30건을 `max_length=128`(이 세트에서는 truncation이 거의 없음)로
-  재추론해서 확인했다. **결과: 예측 라벨은 하나도 바뀌지 않았다**(두 표기
-  모두 flip 0건, grounded 건수도 양쪽 다 1/30 그대로) — 즉 거의 전부
-  "noisy"로 쏠리는 현상은 truncation 아티팩트가 아니다. 유일한 grounded
-  사례의 *확신도*는 문장 전체가 보이자 꽤 떨어졌다(0.965 → 0.581) — 모델이
-  주변 문맥이 늘어나면 희석되는 국소적 어휘 중첩에 의존한다는 것과
-  일치한다. 2×2 전체 분해는
-  [`data/errors/nyt_notrunc_comparison_report.md`](data/errors/nyt_notrunc_comparison_report.md)에
-  있다. 주의: 모델은 고정된 `max_length=48` 배치로만 파인튜닝됐기 때문에,
-  index 47 이후의 위치 임베딩은 파인튜닝 중 gradient를 한 번도 받은 적이
-  없다 — 이 재추론은 진단용일 뿐, 모델이 length 128에서도 안정적으로
-  동작한다는 근거는 아니다.
+- **문단 검색(retrieval)/랭킹.** distractor 문단을 포함한 end-to-end
+  시스템 평가는 하지 않는다 — 이 프로젝트는 "모델이 golden 문단이 주어졌을
+  때 실제로 두 홉을 종합하는가"만 본다(위 "Oracle 설정" 참고).
+- comparison형 질문(다른 홉 구조, yes/no 답).
+- 3개 이상 문단에 걸친 supporting_facts 샘플(순수 2-hop만 다룬다).
 
 ## 향후 과제
 
-- corruption 유형을 확장해서(순서 오류, 다중 트리플 혼합, 암묵적 relation
-  노이즈) 난이도 스펙트럼을 구축한다.
-- 제대로 통제된 distant-supervision 일반화 검증에는 사람이 라벨링한
-  소규모 테스트셋(NYT-FB 100~200건 수작업 주석)이 필요하다 — 위 부록의
-  정성적 탐침은 그것을 대신하는 게 아니라 임시 대체물이다.
-- **WebNLG train 서브샘플링 ablation**(위 "도메인 일반화 검증" 참고) — WebNLG train을 DART와
-  같은 크기(4,968행)로 무작위 서브샘플링해 재학습하면, DART에서 본
-  entity/relation 격차 확대가 "relation 이름의 자연어성" 때문인지
-  "데이터 희소성" 때문인지 가를 수 있다. 지금 파이프라인 구조로 바로
-  실행 가능한, 아직 안 돌린 실험이다.
-- 검증된 탐지기를 KG 구축 파이프라인의 1차 노이즈 필터로 통합한다.
+- **가설 5 재검증.** 코퍼스 등장 빈도 기반 fame 프록시는 신호가 약했다(오히려
+  방향이 반대). context를 아예 주지 않고 질문만으로 zero-shot 추론시켜
+  "모델이 애초에 이 사실을 아는가"를 직접 물어보는 방식이 더 직접적인
+  검증이 될 것이다.
+- **가설 4의 반직관적 결과를 더 파보기.** bridge 제목이 answer_hop에
+  재언급되는 그룹이 왜 오히려 더 어려운 그룹과 겹치는지(질문 유형·난이도
+  `level`과의 상관관계 등) 추가 분석이 필요하다.
+- entity-type 판별에 규칙 기반 휴리스틱(`typing_heuristics.py`) 대신 별도
+  NER 모델이 필요한지 재검토.
+- Oracle 설정을 벗어나 실제 문단 검색(retrieval)을 포함한 end-to-end
+  평가(스코프 밖으로 남겨둔 부분).

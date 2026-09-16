@@ -1,0 +1,11 @@
+{
+  "n_subset": 2223,
+  "n_total_test": 4734,
+  "subset_fraction": 0.4695817490494297,
+  "answer_only_em_before_masking": 0.6459739091318039,
+  "answer_only_em_after_masking": 0.6410256410256411,
+  "answer_only_f1_before_masking": 0.8034929175694775,
+  "answer_only_f1_after_masking": 0.8002064762591541,
+  "em_drop": 0.004948268106162779,
+  "f1_drop": 0.003286441310323407
+}

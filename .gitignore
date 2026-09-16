@@ -9,3 +9,9 @@ models/
 
 # noisy run log
 data/errors/train_bert.log
+
+# HotpotQA train_pool/test/train/val JSONL - large (~190MB total) and fully
+# regenerable from the public HF dataset via scripts/01-03 (fixed seed).
+# The small *.json stats/recommendation files next to them are kept.
+data/processed/*.jsonl
+data/splits/*.jsonl

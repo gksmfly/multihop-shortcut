@@ -1,0 +1,25 @@
+{
+  "n_full_correct": 2775,
+  "answer_only_em_rate_bridge_mentioned_in_answer_hop": 0.7801204819277109,
+  "answer_only_em_rate_bridge_not_mentioned_in_answer_hop": 0.9459971577451445,
+  "n_bridge_mentioned_in_answer_hop": 664,
+  "n_bridge_not_mentioned_in_answer_hop": 2111,
+  "cross_tab_with_question_mention": {
+    "bridge_in_question=True, bridge_in_answer_hop=True": {
+      "n": 155,
+      "answer_only_em_rate": 0.9225806451612903
+    },
+    "bridge_in_question=True, bridge_in_answer_hop=False": {
+      "n": 1188,
+      "answer_only_em_rate": 0.952020202020202
+    },
+    "bridge_in_question=False, bridge_in_answer_hop=True": {
+      "n": 509,
+      "answer_only_em_rate": 0.7367387033398821
+    },
+    "bridge_in_question=False, bridge_in_answer_hop=False": {
+      "n": 923,
+      "answer_only_em_rate": 0.9382448537378115
+    }
+  }
+}

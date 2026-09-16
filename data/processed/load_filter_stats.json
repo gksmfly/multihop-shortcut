@@ -1,0 +1,20 @@
+{
+  "train_pool": {
+    "total": 90447,
+    "not_bridge_type": 17456,
+    "yes_no_answer": 0,
+    "not_pure_2hop": 0,
+    "answer_in_zero_paragraphs": 0,
+    "answer_in_both_paragraphs": 19902,
+    "kept": 53089
+  },
+  "test": {
+    "total": 7405,
+    "not_bridge_type": 1487,
+    "yes_no_answer": 0,
+    "not_pure_2hop": 0,
+    "answer_in_zero_paragraphs": 0,
+    "answer_in_both_paragraphs": 1184,
+    "kept": 4734
+  }
+}

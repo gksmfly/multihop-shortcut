@@ -1,154 +1,140 @@
+"""Fine-tune bert-base-cased as a SQuAD-style extractive QA model on the
+Full-condition train split only (see README "실험 설계 원칙" - which hop is
+shown is a variable manipulated only at evaluation time, never at training
+time).
 """
-Step 5: bert-base-cased fine-tuning.
 
-label: positive(corruption_type=none) -> 1 (grounded), negative(entity/relation
-corruption) -> 0 (ungrounded/noisy). Validation F1(macro) 기준 best checkpoint
-저장, early stopping patience=2.
-
-이 장비에 GPU가 2개 있어 Trainer가 기본적으로 둘 다 묶어 DataParallel로 실행하려다
-NCCL 오류로 죽는 문제를 이전 프로젝트에서 겪었다. 그래서 torch를 import하기 전에
-CUDA_VISIBLE_DEVICES를 GPU 0 하나로 고정한다.
-"""
 import os
-os.environ.setdefault("CUDA_VISIBLE_DEVICES", "0")
+
+# Must be set before torch is imported - see README "환경 설정".
+os.environ.setdefault("CUDA_VISIBLE_DEVICES", "1")
 
 import json
 
 import numpy as np
-import torch
-from datasets import Dataset
 from transformers import (
-    AutoModelForSequenceClassification,
+    BertForQuestionAnswering,
     BertTokenizerFast,
-    EarlyStoppingCallback,
     Trainer,
     TrainingArguments,
 )
 
-from kg_noise.constants import LABEL_GROUNDED, LABEL_NOISY, MODEL_NAME
-from kg_noise.io_utils import load_jsonl
-from kg_noise.metrics import classification_metrics
-from kg_noise.paths import ERRORS_DIR, MODEL_OUT_DIR, SPLITS_DIR
+from multihop_shortcut.constants import BASE_MODEL_NAME
+from multihop_shortcut.io_utils import load_jsonl
+from multihop_shortcut.paths import MODELS_DIR, SPLITS_DIR
 
-MODEL_OUT = MODEL_OUT_DIR
+MODEL_DIR = MODELS_DIR / "multihop_shortcut_qa"
 
-
-def load_split(name: str) -> list[dict]:
-    return load_jsonl(SPLITS_DIR / f"{name}.jsonl")
+with open(SPLITS_DIR / "max_length_recommendation.json", encoding="utf-8") as f:
+    MAX_LENGTH = json.load(f)["recommended_max_length"]
 
 
-def to_hf_dataset(rows: list[dict], tokenizer, max_length: int) -> Dataset:
-    triple = [r["triple_text"] for r in rows]
-    sentence = [r["sentence"] for r in rows]
-    labels = [r["label"] for r in rows]
-    enc = tokenizer(
-        triple, sentence, padding="max_length", truncation=True,
-        max_length=max_length, return_tensors=None,
+def prepare_features(examples: dict, tokenizer) -> dict:
+    encodings = tokenizer(
+        examples["question"],
+        examples["context"],
+        max_length=MAX_LENGTH,
+        truncation="only_second",
+        padding="max_length",
+        return_offsets_mapping=True,
     )
-    ds = Dataset.from_dict({**enc, "labels": labels})
-    return ds
+
+    start_positions = []
+    end_positions = []
+    for i, offsets in enumerate(encodings["offset_mapping"]):
+        answer_start_char = examples["answer_start"][i]
+        answer_end_char = answer_start_char + len(examples["answer"][i])
+        sequence_ids = encodings.sequence_ids(i)
+
+        context_start = sequence_ids.index(1)
+        context_end = len(sequence_ids) - 1 - sequence_ids[::-1].index(1)
+
+        if (
+            offsets[context_start][0] > answer_start_char
+            or offsets[context_end][1] < answer_end_char
+        ):
+            # Answer got truncated out of this window - point to CLS (token 0)
+            start_positions.append(0)
+            end_positions.append(0)
+            continue
+
+        tok_start = context_start
+        while tok_start <= context_end and offsets[tok_start][0] <= answer_start_char:
+            tok_start += 1
+        tok_start -= 1
+
+        tok_end = context_end
+        while tok_end >= context_start and offsets[tok_end][1] >= answer_end_char:
+            tok_end -= 1
+        tok_end += 1
+
+        start_positions.append(tok_start)
+        end_positions.append(tok_end)
+
+    encodings["start_positions"] = start_positions
+    encodings["end_positions"] = end_positions
+    encodings.pop("offset_mapping")
+    return encodings
 
 
-def compute_metrics(eval_pred):
-    logits, labels = eval_pred
-    preds = np.argmax(logits, axis=-1)
-    return classification_metrics(labels, preds)
+class JsonlQADataset:
+    def __init__(self, rows: list[dict], tokenizer):
+        examples = {
+            "question": [r["question"] for r in rows],
+            "context": [r["context"] for r in rows],
+            "answer": [r["answer"] for r in rows],
+            "answer_start": [r["answer_start"] for r in rows],
+        }
+        self.encodings = prepare_features(examples, tokenizer)
+        self.n = len(rows)
+
+    def __len__(self) -> int:
+        return self.n
+
+    def __getitem__(self, idx: int) -> dict:
+        return {k: v[idx] for k, v in self.encodings.items()}
 
 
-def main():
-    rec_path = SPLITS_DIR / "max_length_recommendation.json"
-    max_length = 128
-    if rec_path.exists():
-        rec = json.loads(rec_path.read_text())
-        max_length = rec["recommended_max_length"]
-        print(f"[5] Step4 결과에서 max_length={max_length} 사용 (p95={rec['p95_raw']})")
-    else:
-        print(f"[5] max_length_recommendation.json 없음 -> 기본값 {max_length} 사용")
+def main() -> None:
+    tokenizer = BertTokenizerFast.from_pretrained(BASE_MODEL_NAME)
+    model = BertForQuestionAnswering.from_pretrained(BASE_MODEL_NAME)
 
-    print(f"[5] CUDA available: {torch.cuda.is_available()}, "
-          f"device count: {torch.cuda.device_count()}")
+    train_rows = load_jsonl(SPLITS_DIR / "train.jsonl")
+    val_rows = load_jsonl(SPLITS_DIR / "val.jsonl")
 
-    tokenizer = BertTokenizerFast.from_pretrained(MODEL_NAME)
-
-    train_rows = load_split("train")
-    val_rows = load_split("val")
-    test_rows = load_split("test")
-    print(f"[5] train {len(train_rows)} / val {len(val_rows)} / test {len(test_rows)}")
-
-    train_ds = to_hf_dataset(train_rows, tokenizer, max_length)
-    val_ds = to_hf_dataset(val_rows, tokenizer, max_length)
-    test_ds = to_hf_dataset(test_rows, tokenizer, max_length)
-
-    model = AutoModelForSequenceClassification.from_pretrained(MODEL_NAME, num_labels=2)
+    train_dataset = JsonlQADataset(train_rows, tokenizer)
+    val_dataset = JsonlQADataset(val_rows, tokenizer)
 
     args = TrainingArguments(
-        output_dir=str(MODEL_OUT / "checkpoints"),
-        learning_rate=2e-5,
-        per_device_train_batch_size=16,
-        per_device_eval_batch_size=32,
-        num_train_epochs=5,
-        weight_decay=0.01,
+        output_dir=str(MODEL_DIR / "checkpoints"),
         eval_strategy="epoch",
         save_strategy="epoch",
         save_total_limit=2,
         load_best_model_at_end=True,
-        metric_for_best_model="f1",
-        greater_is_better=True,
-        logging_steps=20,
+        metric_for_best_model="eval_loss",
+        greater_is_better=False,
+        learning_rate=3e-5,
+        per_device_train_batch_size=16,
+        per_device_eval_batch_size=32,
+        num_train_epochs=3,
+        weight_decay=0.01,
+        logging_steps=200,
         report_to=[],
-        seed=42,
+        fp16=True,
     )
 
     trainer = Trainer(
         model=model,
         args=args,
-        train_dataset=train_ds,
-        eval_dataset=val_ds,
-        compute_metrics=compute_metrics,
-        callbacks=[EarlyStoppingCallback(early_stopping_patience=2)],
+        train_dataset=train_dataset,
+        eval_dataset=val_dataset,
     )
-
     trainer.train()
 
-    print("[5] === Validation 최종 성능 ===")
-    val_metrics = trainer.evaluate(val_ds)
-    print(val_metrics)
-
-    print("[5] === Test 성능 ===")
-    test_metrics = trainer.evaluate(test_ds, metric_key_prefix="test")
-    print(test_metrics)
-
-    MODEL_OUT.mkdir(parents=True, exist_ok=True)
-    trainer.save_model(str(MODEL_OUT / "best"))
-    tokenizer.save_pretrained(str(MODEL_OUT / "best"))
-
-    # Step 7/8용: test set 예측 확률 + 정답 + corruption_type 저장
-    preds_output = trainer.predict(test_ds)
-    probs = torch.softmax(torch.tensor(preds_output.predictions), dim=-1).numpy()
-    pred_labels = probs.argmax(axis=-1)
-
-    out_path = ERRORS_DIR / "bert_test_predictions.jsonl"
-    out_path.parent.mkdir(parents=True, exist_ok=True)
-    with out_path.open("w", encoding="utf-8") as f:
-        for r, prob, pred in zip(test_rows, probs, pred_labels):
-            f.write(json.dumps({
-                "pair_id": r["pair_id"],
-                "triple_text": r["triple_text"],
-                "sentence": r["sentence"],
-                "category": r["category"],
-                "corruption_type": r["corruption_type"],
-                "true_label": r["label"],
-                "pred_label": int(pred),
-                "prob_noisy": float(prob[LABEL_NOISY]),
-                "prob_grounded": float(prob[LABEL_GROUNDED]),
-            }, ensure_ascii=False) + "\n")
-    print(f"[5] test 예측 저장 -> {out_path}")
-
-    metrics_path = ERRORS_DIR / "bert_metrics.json"
-    with metrics_path.open("w", encoding="utf-8") as f:
-        json.dump({"val": val_metrics, "test": test_metrics, "max_length": max_length}, f,
-                   ensure_ascii=False, indent=2)
-    print(f"[5] 메트릭 저장 -> {metrics_path}")
+    best_dir = MODEL_DIR / "best"
+    trainer.save_model(str(best_dir))
+    tokenizer.save_pretrained(str(best_dir))
+    print(f"Saved best model to {best_dir}")
 
 
 if __name__ == "__main__":

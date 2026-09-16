@@ -1,0 +1,10 @@
+{
+  "n_total": 4734,
+  "n_bridge_only_exact_correct_despite_no_answer_in_context": 22,
+  "mean_fame_exact_correct": 2.272727272727273,
+  "median_fame_exact_correct": 1.0,
+  "mean_fame_rest": 3.2398132427843804,
+  "median_fame_rest": 2.0,
+  "mean_fame_type_match_wrong": 3.3643860720830787,
+  "mean_fame_type_mismatch_wrong": 2.956189151599444
+}
