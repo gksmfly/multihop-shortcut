@@ -8,7 +8,7 @@ by construction, one Wikipedia tends to reference often (a rough notability
 signal), independent of this project's own filtered subset.
 
 The single most direct piece of evidence for hypothesis 5 is samples where
-`bridge_only_em == 1`: since bridge_hop_text was filtered in scripts/01 to
+`bridge_only_em == 1`: since bridge_hop_text was filtered in pipeline/load_hotpotqa.py to
 *never* literally contain the answer string, an exact match there cannot
 come from copying the context - it can only come from the model already
 "knowing" the fact.

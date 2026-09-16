@@ -22,7 +22,7 @@ For each group we report the rate of two candidate explanations:
   the two candidate loci from hypotheses 3 and 4.
 
 Bridge-hop only wrong answers are split by whether the guessed span's coarse
-type matches the gold answer's type (from scripts/07), to see whether wrong
+type matches the gold answer's type (from pipeline/confidence_bias_analysis.py), to see whether wrong
 guesses are "plausible-looking" (hypothesis 2) rather than arbitrary.
 """
 

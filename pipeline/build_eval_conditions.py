@@ -1,5 +1,5 @@
 """Build the Full/Answer-hop-only/Bridge-hop-only contexts from the tagged
-rows produced by scripts/01_load_hotpotqa.py.
+rows produced by pipeline/load_hotpotqa.py.
 
 Full-condition context concatenates the two gold paragraphs in their
 *natural document order* (as they appeared in the original HotpotQA context
@@ -10,11 +10,11 @@ under study.
 
 train_pool.jsonl only needs the Full condition (that's the only condition
 ever used for training - see README "실험 설계 원칙"), so its output is a
-flat SQuAD-like schema ready for scripts/03_split_dataset.py and
-scripts/05_train_bert.py.
+flat SQuAD-like schema ready for pipeline/split_dataset.py and
+pipeline/train_bert.py.
 
 test.jsonl needs all three conditions kept side by side (same qid), so
-scripts/06_evaluate_conditions.py can run the same trained model on all
+pipeline/evaluate_conditions.py can run the same trained model on all
 three and compare per-sample.
 """
 

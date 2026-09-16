@@ -11,7 +11,7 @@ _YEAR_RE = re.compile(r"\b\d{3,4}\b")
 def classify_answer_type(text: str) -> str:
     """Coarse, rule-based answer typing (no NER model dependency) - used as
     a plausibility proxy: does a wrong answer at least "look like" the
-    right kind of thing (see README hypothesis 2 / scripts/07)."""
+    right kind of thing (see README hypothesis 2 / pipeline/confidence_bias_analysis.py)."""
     text = text.strip()
     if not text:
         return "EMPTY"

@@ -4,14 +4,17 @@ __pycache__/
 *.egg-info/
 build/
 
-# fine-tuned model checkpoints (large, regenerable via scripts/05_train_bert.py)
+# fine-tuned model checkpoints (large, regenerable via pipeline/train_bert.py
+# and scripts/mitigation/*/train.py)
 models/
 
-# noisy run log
+# noisy training run logs (tqdm progress-bar spam)
 data/errors/train_bert.log
+data/errors/train_*.log
 
 # HotpotQA train_pool/test/train/val JSONL - large (~190MB total) and fully
-# regenerable from the public HF dataset via scripts/01-03 (fixed seed).
+# regenerable from the public HF dataset via pipeline/load_hotpotqa.py,
+# build_eval_conditions.py, split_dataset.py (fixed seed).
 # The small *.json stats/recommendation files next to them are kept.
 data/processed/*.jsonl
 data/splits/*.jsonl

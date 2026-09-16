@@ -1,0 +1,9 @@
+{
+  "n": 4734,
+  "mean_support_true_bridge": 0.9957606460220063,
+  "mean_support_random_bridge": 0.002801724477582113,
+  "ablation_gap": 0.9929589215444242,
+  "mean_support_true_when_stage1_correct": 0.9959830047865417,
+  "mean_support_true_when_stage1_wrong": 0.9954043096841171,
+  "veto_gap": 0.0005786951024245868
+}

@@ -73,7 +73,7 @@ truncation·문단 개수·문서 검색(retrieval) 성능 같은 다른 변수�
 **HotpotQA** (distractor 설정, HuggingFace `hotpotqa/hotpot_qa`) — 원래
 `hotpot_qa`(네임스페이스 없는 레포)는 `datasets>=4`의 스크립트 기반 로딩
 폐지로 실패하므로, 네임스페이스가 있는 미러 `hotpotqa/hotpot_qa`를 쓴다
-([`scripts/01_load_hotpotqa.py`](scripts/01_load_hotpotqa.py)).
+([`pipeline/load_hotpotqa.py`](pipeline/load_hotpotqa.py)).
 
 **필터링** (`type == "bridge"`인 샘플만; comparison형은 홉 구조가 다르고
 답이 보통 yes/no라 스코프 밖):
@@ -119,19 +119,25 @@ train/val로 재분할). HF `validation` split(공식 dev set, 정답 라벨 있
 
 ## 파이프라인
 
-| 단계 | 스크립트 | 내용 | 상태 |
+번호가 아니라 `pipeline/` 안에서 이 표의 순서대로 실행한다(실행 순서는
+아래 "사용법"의 `run_pipeline.sh` 참고).
+
+| 순서 | 스크립트 | 내용 | 상태 |
 |---|---|---|---|
-| 1 | [`scripts/01_load_hotpotqa.py`](scripts/01_load_hotpotqa.py) | HotpotQA 로드, bridge형·순수 2-hop 필터링, answer_hop/bridge_hop 태깅. | 완료 |
-| 2 | [`scripts/02_build_eval_conditions.py`](scripts/02_build_eval_conditions.py) | test set의 각 질문마다 Full/Answer-hop only/Bridge-hop only 3조건 context를 생성. | 완료 |
-| 3 | [`scripts/03_split_dataset.py`](scripts/03_split_dataset.py) | train_pool을 train/val로 분할(qid 단위). | 완료 |
-| 4 | [`scripts/04_analyze_lengths.py`](scripts/04_analyze_lengths.py) | 토큰화된 (question, context) 길이 분포 확인, max_length 결정. | 완료 |
-| 5 | [`scripts/05_train_bert.py`](scripts/05_train_bert.py) | `bert-base-cased`를 SQuAD 스타일 extractive QA로 파인튜닝. **Full 조건 train 데이터로만 학습** — shortcut 여부 조작은 테스트 단계에서만. | 완료 |
-| 6 | [`scripts/06_evaluate_conditions.py`](scripts/06_evaluate_conditions.py) | 학습된 모델을 test set의 3조건 각각에 대해 추론, EM/F1 + 예측 span의 confidence(softmax) 기록. | 완료 |
-| 7 | [`scripts/07_confidence_bias_analysis.py`](scripts/07_confidence_bias_analysis.py) | 가설 2 전용: Full/Answer-hop-only 대비 Bridge-hop-only의 confidence 하락폭 분포, 예측 span의 엔티티 타입이 기대 답 타입과 맞는 비율. | 완료 |
-| 8 | [`scripts/08_error_taxonomy.py`](scripts/08_error_taxonomy.py) | **핵심 결과.** Answer-hop-only가 Full과 동일하게 맞춘 샘플(질문의 타입 제약, n-gram 단서)과 Bridge-hop-only 오답(타입 일치 여부)을 유형화 + 케이스 스터디. | 완료 |
-| 9 | [`scripts/09_question_masking_probe.py`](scripts/09_question_masking_probe.py) | 가설 3 전용: 질문에서 bridge 엔티티 언급을 마스킹한 뒤 Answer-hop only를 재평가, 마스킹 전후 EM/F1 비교. | 완료 |
-| 10 | [`scripts/10_self_containment_split.py`](scripts/10_self_containment_split.py) | 가설 4 전용: `answer_hop_text`에 `bridge_hop_title` 언급 여부로 그룹을 나눠 Answer-hop only 성능 비교(가설 3과 2x2 교차). | 완료 |
-| 11 | [`scripts/11_fame_bias_analysis.py`](scripts/11_fame_bias_analysis.py) | 가설 5 전용: Bridge-hop only에서 정답을 맞힌 샘플의 정답 엔티티가 코퍼스 전체에서 얼마나 자주 언급되는지(유명도 프록시) 빈도 분석. | 완료 |
+| 1 | [`pipeline/load_hotpotqa.py`](pipeline/load_hotpotqa.py) | HotpotQA 로드, bridge형·순수 2-hop 필터링, answer_hop/bridge_hop 태깅. | 완료 |
+| 2 | [`pipeline/build_eval_conditions.py`](pipeline/build_eval_conditions.py) | test set의 각 질문마다 Full/Answer-hop only/Bridge-hop only 3조건 context를 생성. | 완료 |
+| 3 | [`pipeline/split_dataset.py`](pipeline/split_dataset.py) | train_pool을 train/val로 분할(qid 단위). | 완료 |
+| 4 | [`pipeline/analyze_lengths.py`](pipeline/analyze_lengths.py) | 토큰화된 (question, context) 길이 분포 확인, max_length 결정. | 완료 |
+| 5 | [`pipeline/train_bert.py`](pipeline/train_bert.py) | `bert-base-cased`를 SQuAD 스타일 extractive QA로 파인튜닝. **Full 조건 train 데이터로만 학습** — shortcut 여부 조작은 테스트 단계에서만. | 완료 |
+| 6 | [`pipeline/evaluate_conditions.py`](pipeline/evaluate_conditions.py) | 학습된 모델을 test set의 3조건 각각에 대해 추론, EM/F1 + 예측 span의 confidence(softmax) 기록. | 완료 |
+| 7 | [`pipeline/confidence_bias_analysis.py`](pipeline/confidence_bias_analysis.py) | 가설 2 전용: Full/Answer-hop-only 대비 Bridge-hop-only의 confidence 하락폭 분포, 예측 span의 엔티티 타입이 기대 답 타입과 맞는 비율. | 완료 |
+| 8 | [`pipeline/error_taxonomy.py`](pipeline/error_taxonomy.py) | **핵심 결과.** Answer-hop-only가 Full과 동일하게 맞춘 샘플(질문의 타입 제약, n-gram 단서)과 Bridge-hop-only 오답(타입 일치 여부)을 유형화 + 케이스 스터디. | 완료 |
+| 9 | [`pipeline/question_masking_probe.py`](pipeline/question_masking_probe.py) | 가설 3 전용: 질문에서 bridge 엔티티 언급을 마스킹한 뒤 Answer-hop only를 재평가, 마스킹 전후 EM/F1 비교. | 완료 |
+| 10 | [`pipeline/self_containment_split.py`](pipeline/self_containment_split.py) | 가설 4 전용: `answer_hop_text`에 `bridge_hop_title` 언급 여부로 그룹을 나눠 Answer-hop only 성능 비교(가설 3과 2x2 교차). | 완료 |
+| 11 | [`pipeline/fame_bias_analysis.py`](pipeline/fame_bias_analysis.py) | 가설 5 전용: Bridge-hop only에서 정답을 맞힌 샘플의 정답 엔티티가 코퍼스 전체에서 얼마나 자주 언급되는지(유명도 프록시) 빈도 분석. | 완료 |
+
+진단 이후의 완화(mitigation) 실험(shortcut을 실제로 줄이려는 시도, 성공/실패
+포함)은 [`docs/mitigation-experiment.md`](docs/mitigation-experiment.md) 참고.
 
 ## 실험 설계 원칙
 
@@ -175,9 +181,9 @@ CUDA 13 — 그런데 이게 오래된 드라이버에서는 `torch.cuda.is_avai
 `nvidia-smi`로 드라이버가 지원하는 최대 CUDA 버전을 확인할 수 있다.)
 
 마지막 줄은 이 저장소 자체의 [`src/multihop_shortcut/`](src/multihop_shortcut)
-패키지를 editable 모드로 설치한다 — 이 덕분에 모든 `scripts/NN_*.py` 파일이
-동일한 경로/IO 헬퍼를 중복 정의하는 대신 `from multihop_shortcut import ...`로
-가져다 쓸 수 있다.
+패키지를 editable 모드로 설치한다 — 이 덕분에 `pipeline/`·`scripts/mitigation/`·
+`eval/`의 모든 진입점 파일이 동일한 경로/IO 헬퍼를 중복 정의하는 대신
+`from multihop_shortcut import ...`로 가져다 쓸 수 있다.
 
 ## 디렉터리 구조
 
@@ -186,55 +192,78 @@ CUDA 13 — 그런데 이게 오래된 드라이버에서는 `torch.cuda.is_avai
 ├── pyproject.toml          # editable 패키지 설치 설정 (src 레이아웃)
 ├── README.md
 ├── .gitignore
+├── run_pipeline.sh          # pipeline/ 실행 순서(아래 표와 동일)
+├── run_mitigation.sh        # scripts/mitigation/, eval/ 실행 순서
 ├── src/
-│   └── multihop_shortcut/  # 여러 스크립트가 공유하는 라이브러리 코드
+│   └── multihop_shortcut/  # 여러 진입점이 공유하는 라이브러리 코드
 │       ├── __init__.py
 │       ├── paths.py              # ROOT 및 data/models 하위 경로 상수
 │       ├── io_utils.py           # JSONL 읽기/쓰기 (load_jsonl, save_jsonl)
 │       ├── constants.py          # 베이스 모델명, hop 라벨 상수
 │       ├── metrics.py            # SQuAD 스타일 EM/F1 (normalize_answer 포함)
-│       ├── inference.py          # 배치 QA 추론 (run_qa_inference, 6·9단계 공용)
+│       ├── qa_training.py        # 추출형 QA 학습 공용 (Dataset, feature 변환)
+│       ├── classifier_training.py# 이진/다중 분류기 학습 공용
+│       ├── inference.py          # 배치 추론 (QA·분류기 공용)
 │       └── typing_heuristics.py  # 규칙 기반 answer 타입 분류(가설 2/5용)
-├── scripts/                 # 번호가 매겨진 파이프라인 진입점, 순서대로 실행
-│   ├── 01_load_hotpotqa.py           ┐
-│   ├── 02_build_eval_conditions.py   │
-│   ├── 03_split_dataset.py           │ 데이터 준비
-│   ├── 04_analyze_lengths.py         │
-│   ├── 05_train_bert.py              ┘ 학습(Full 조건만)
-│   ├── 06_evaluate_conditions.py     ┐
-│   ├── 07_confidence_bias_analysis.py│ 가설 1·2 평가
-│   ├── 08_error_taxonomy.py          ┘ (핵심 결과)
-│   ├── 09_question_masking_probe.py  ┐
-│   ├── 10_self_containment_split.py  │ 가설 3·4·5 원인 진단
-│   └── 11_fame_bias_analysis.py      ┘
+├── pipeline/                # 진단 연구 진입점 — run_pipeline.sh 순서대로 실행
+│   ├── load_hotpotqa.py              ┐
+│   ├── build_eval_conditions.py      │
+│   ├── split_dataset.py              │ 데이터 준비
+│   ├── analyze_lengths.py            │
+│   ├── train_bert.py                 ┘ 학습(Full 조건만)
+│   ├── evaluate_conditions.py        ┐
+│   ├── confidence_bias_analysis.py   │ 가설 1·2 평가
+│   ├── error_taxonomy.py             ┘ (핵심 결과)
+│   ├── question_masking_probe.py     ┐
+│   ├── self_containment_split.py     │ 가설 3·4·5 원인 진단
+│   └── fame_bias_analysis.py         ┘
+├── scripts/mitigation/      # 완화 실험 — 기법별 하위 폴더, 각각 build_data→train→evaluate
+│   ├── adversarial_training/            (A, 채택된 해결책)
+│   ├── bridge_relatedness_classifier/   (B-v1)
+│   └── counterfactual_classifier/       (B-v3)
+├── eval/                    # 완화 실험의 탐색적 후속 실험(정식 파이프라인 아님, B-v4)
+├── docs/
+│   └── mitigation-experiment.md  # 완화 실험 설계·결과 전체 기록
 ├── data/                    # 파이프라인 입출력 (raw/processed/splits/errors)
 └── models/                  # 파인튜닝 체크포인트 (.gitignore로 추적 제외)
 ```
 
-각 `scripts/NN_*.py` 파일은 재사용 로직을 담는 곳이 아니라
-`src/multihop_shortcut/`를 불러와 순서대로 실행만 하는 얇은 진입점이다.
-여러 스크립트에서 같은 코드가 필요해지면 그 로직은 `scripts/`가 아니라
-`src/multihop_shortcut/`에 추가한다.
+각 진입점 파일(`pipeline/*.py`, `scripts/mitigation/*/*.py`, `eval/*.py`)은
+재사용 로직을 담는 곳이 아니라 `src/multihop_shortcut/`를 불러와 실행만
+하는 얇은 진입점이다. 여러 곳에서 같은 코드가 필요해지면 그 로직은
+`src/multihop_shortcut/`에 추가한다. 파일명에 실행 순서를 숫자로 박아넣지
+않는다 — 순서는 `run_pipeline.sh`/`run_mitigation.sh`와 파일명 자체의
+동사(`build_data`→`train`→`evaluate`)가 말해준다.
 
 ## 사용법
 
 ```bash
-.venv/bin/python scripts/01_load_hotpotqa.py
-.venv/bin/python scripts/02_build_eval_conditions.py
-.venv/bin/python scripts/03_split_dataset.py
-.venv/bin/python scripts/04_analyze_lengths.py
-.venv/bin/python scripts/05_train_bert.py
-.venv/bin/python scripts/06_evaluate_conditions.py
-.venv/bin/python scripts/07_confidence_bias_analysis.py
-.venv/bin/python scripts/08_error_taxonomy.py
-.venv/bin/python scripts/09_question_masking_probe.py
-.venv/bin/python scripts/10_self_containment_split.py
-.venv/bin/python scripts/11_fame_bias_analysis.py
+./run_pipeline.sh
 ```
 
-5·6·9번 스크립트는 GPU가 필요하고 `CUDA_VISIBLE_DEVICES=1`을 코드 안에서
-고정한다(이 기기에 GPU가 2개 있고, 1번을 쓰기로 했다 — 필요하면 스크립트
-상단의 `os.environ.setdefault(...)` 줄을 바꾼다).
+개별 실행:
+
+```bash
+.venv/bin/python pipeline/load_hotpotqa.py
+.venv/bin/python pipeline/build_eval_conditions.py
+.venv/bin/python pipeline/split_dataset.py
+.venv/bin/python pipeline/analyze_lengths.py
+.venv/bin/python pipeline/train_bert.py
+.venv/bin/python pipeline/evaluate_conditions.py
+.venv/bin/python pipeline/confidence_bias_analysis.py
+.venv/bin/python pipeline/error_taxonomy.py
+.venv/bin/python pipeline/question_masking_probe.py
+.venv/bin/python pipeline/self_containment_split.py
+.venv/bin/python pipeline/fame_bias_analysis.py
+```
+
+완화 실험은 `./run_mitigation.sh` — 자세한 설계·결과는
+[`docs/mitigation-experiment.md`](docs/mitigation-experiment.md) 참고.
+
+`train_bert.py`·`evaluate_conditions.py`·`question_masking_probe.py`는 GPU가
+필요하고 `CUDA_VISIBLE_DEVICES=1`을 코드 안에서 고정한다(이 기기에 GPU가
+2개 있고, 1번을 쓰기로 했다 — 필요하면 스크립트 상단의
+`os.environ.setdefault(...)` 줄을 바꾼다).
 
 ## 결과
 

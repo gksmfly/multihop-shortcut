@@ -39,3 +39,29 @@ def f1_score(prediction: str, gold: str) -> float:
     precision = num_same / len(pred_tokens)
     recall = num_same / len(gold_tokens)
     return 2 * precision * recall / (precision + recall)
+
+
+BUCKET_TO_3WAY = {
+    "no_change": 0,
+    "changed_still_wrong": 0,  # neither answer is right - no benefit from switching
+    "bridge_helped": 1,  # wrong -> correct: the case a veto system should catch
+    "bridge_hurt": 2,  # correct -> wrong: overriding here is actively harmful
+}
+
+
+def counterfactual_bucket(p1_pred: str, p2_pred: str, p1_correct: bool, p2_correct: bool) -> str:
+    """Classifies a (P1=Answer-hop-only pred, P2=Full pred) pair into the
+    four buckets used by the B-v3 counterfactual-labeling mitigation
+    experiment (scripts/mitigation/counterfactual_classifier/01,03; see docs/mitigation-experiment.md):
+    does adding the bridge hop change the prediction, and if so, does it
+    change it to the *correct* answer, the *wrong* answer, or another wrong
+    answer.
+    """
+    changed = normalize_answer(p1_pred) != normalize_answer(p2_pred)
+    if not changed:
+        return "no_change"
+    if not p1_correct and p2_correct:
+        return "bridge_helped"
+    if p1_correct and not p2_correct:
+        return "bridge_hurt"
+    return "changed_still_wrong"

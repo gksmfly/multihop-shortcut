@@ -1,7 +1,7 @@
-"""Split train_full.jsonl (Full-condition, from scripts/02) into our own
+"""Split train_full.jsonl (Full-condition, from pipeline/build_eval_conditions.py) into our own
 train/val, stratified by HotpotQA `level` (easy/medium/hard). The official
 HotpotQA validation split is already reserved as the untouched test set
-(scripts/01), so this script never touches it.
+(pipeline/load_hotpotqa.py), so this script never touches it.
 """
 
 from sklearn.model_selection import train_test_split

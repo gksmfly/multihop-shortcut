@@ -1,5 +1,5 @@
 """Tokenize (question, context) pairs from the train split to pick
-max_length for scripts/05_train_bert.py. Full-condition context is the
+max_length for pipeline/train_bert.py. Full-condition context is the
 longest of the three eval conditions (it's the only one used for training),
 so its length distribution is what matters here.
 """

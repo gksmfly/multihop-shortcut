@@ -4,6 +4,74 @@ import torch.nn.functional as F
 CLS_INDEX = 0
 
 
+def run_multiclass_probs(
+    model,
+    tokenizer,
+    device,
+    questions: list[str],
+    bridges: list[str],
+    max_length: int = 448,
+    batch_size: int = 32,
+) -> list[list[float]]:
+    """Same batching as run_classifier_inference, but returns the full
+    softmax distribution per example instead of collapsing to P(label=1) -
+    for classifiers with more than two classes (eval/train_3way_classifier.py).
+    """
+    model.eval()
+    all_probs = []
+    for start in range(0, len(questions), batch_size):
+        batch_q = questions[start : start + batch_size]
+        batch_b = bridges[start : start + batch_size]
+        enc = tokenizer(
+            batch_q,
+            batch_b,
+            max_length=max_length,
+            truncation="only_second",
+            padding=True,
+            return_tensors="pt",
+        )
+        enc = {k: v.to(device) for k, v in enc.items()}
+        with torch.no_grad():
+            logits = model(**enc).logits
+        probs = F.softmax(logits, dim=-1)
+        all_probs.extend(probs.cpu().tolist())
+    return all_probs
+
+
+def run_classifier_inference(
+    model,
+    tokenizer,
+    device,
+    questions: list[str],
+    bridges: list[str],
+    max_length: int = 448,
+    batch_size: int = 32,
+) -> list[float]:
+    """Batched binary sequence-classification inference for the Stage-2
+    support classifiers (scripts/mitigation/bridge_relatedness_classifier/ and scripts/mitigation/counterfactual_classifier/). Returns, per (question,
+    bridge_hop_text) pair, the softmax probability of label=1.
+    """
+    model.eval()
+    scores = []
+    for start in range(0, len(questions), batch_size):
+        batch_q = questions[start : start + batch_size]
+        batch_b = bridges[start : start + batch_size]
+        enc = tokenizer(
+            batch_q,
+            batch_b,
+            max_length=max_length,
+            truncation="only_second",
+            padding=True,
+            return_tensors="pt",
+        )
+        enc = {k: v.to(device) for k, v in enc.items()}
+        with torch.no_grad():
+            logits = model(**enc).logits
+        probs = F.softmax(logits, dim=-1)[:, 1]
+        scores.extend(probs.cpu().tolist())
+    return scores
+
+
 def run_qa_inference(
     model,
     tokenizer,

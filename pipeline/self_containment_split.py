@@ -2,10 +2,10 @@
 answer_hop paragraph itself re-mentions the bridge entity (i.e. the
 paragraph is self-contained), rather than because of anything in the
 question (hypothesis 3)? No new model calls needed - this just regroups the
-predictions scripts/06 already produced.
+predictions pipeline/evaluate_conditions.py already produced.
 
 Restricted to samples the model gets right in the Full condition (same
-denominator as scripts/08's shortcut_success/bridge_needed split), so the
+denominator as pipeline/error_taxonomy.py's shortcut_success/bridge_needed split), so the
 question is "given the model *could* answer this, does self-containment
 predict whether it still can without the bridge paragraph?"
 
@@ -96,7 +96,7 @@ def main() -> None:
     lines.append("")
     lines.append(
         "두 마진 비율 차이가 크면 그쪽(질문 vs 문단)이 shortcut의 더 강한 예측 "
-        "인자 - scripts/09의 마스킹 결과와 함께 해석할 것."
+        "인자 - pipeline/question_masking_probe.py의 마스킹 결과와 함께 해석할 것."
     )
 
     with open(ERRORS_DIR / "self_containment_report.md", "w", encoding="utf-8") as f:

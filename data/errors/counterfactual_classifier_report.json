@@ -1,0 +1,17 @@
+{
+  "n": 4734,
+  "accuracy": 0.7967891846218842,
+  "precision": 0.7049180327868853,
+  "recall": 0.16195856873822975,
+  "majority_baseline": 0.7756653992395437,
+  "veto_gap": 0.030414713647209615,
+  "mean_score_stage1_correct": 0.06771168786981246,
+  "mean_score_stage1_wrong": 0.09812640151702208,
+  "flagged_bucket_counts": {
+    "bridge_helped": 61,
+    "bridge_hurt": 72,
+    "no_change": 72,
+    "changed_still_wrong": 39
+  },
+  "n_flagged": 244
+}

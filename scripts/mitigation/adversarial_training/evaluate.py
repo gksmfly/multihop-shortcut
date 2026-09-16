@@ -1,11 +1,8 @@
-"""Run the trained model on the test set under all three eval conditions
-(Full / Answer-hop only / Bridge-hop only) and record per-sample EM/F1 and
-confidence.
-
-Bridge-hop only's EM/F1 is recorded for completeness but is not the metric
-hypothesis 2 is judged on (the answer isn't in that context by construction,
-so EM/F1 is expected to be near 0 regardless of what the model does - see
-README and scripts/07_confidence_bias_analysis.py).
+"""Evaluate the mitigated model (scripts/mitigation/adversarial_training/01-02) on the exact same 3-condition
+oracle test set as pipeline/evaluate_conditions.py, and compare against the original model's
+condition_comparison.json to check whether the adversarial-training fix
+actually closed the H3 shortcut (Answer-hop only should drop noticeably
+relative to Full, unlike the original model where it was *higher*).
 """
 
 import json
@@ -16,13 +13,12 @@ os.environ.setdefault("CUDA_VISIBLE_DEVICES", "1")
 import torch
 from transformers import BertForQuestionAnswering, BertTokenizerFast
 
-from multihop_shortcut.constants import BASE_MODEL_NAME
 from multihop_shortcut.inference import run_qa_inference
 from multihop_shortcut.io_utils import load_jsonl, save_jsonl
 from multihop_shortcut.metrics import exact_match, f1_score
 from multihop_shortcut.paths import ERRORS_DIR, MODELS_DIR, PROCESSED_DIR, SPLITS_DIR
 
-MODEL_DIR = MODELS_DIR / "multihop_shortcut_qa" / "best"
+MODEL_DIR = MODELS_DIR / "multihop_shortcut_qa_mitigated" / "best"
 
 with open(SPLITS_DIR / "max_length_recommendation.json", encoding="utf-8") as f:
     MAX_LENGTH = json.load(f)["recommended_max_length"]
@@ -64,7 +60,7 @@ def main() -> None:
             record[f"{condition}_f1"] = f1_score(pred["pred_text"], row["answer"])
         out.append(record)
 
-    save_jsonl(out, ERRORS_DIR / "test_predictions.jsonl")
+    save_jsonl(out, ERRORS_DIR / "mitigated_test_predictions.jsonl")
 
     summary = {}
     for condition in CONDITIONS:
@@ -74,7 +70,7 @@ def main() -> None:
             "mean_confidence": sum(r[f"{condition}_confidence"] for r in out) / len(out),
             "mean_cls_prob": sum(r[f"{condition}_cls_prob"] for r in out) / len(out),
         }
-    with open(ERRORS_DIR / "condition_comparison.json", "w", encoding="utf-8") as f:
+    with open(ERRORS_DIR / "mitigated_condition_comparison.json", "w", encoding="utf-8") as f:
         json.dump(summary, f, indent=2)
 
     print(f"{'condition':<15}{'EM':>8}{'F1':>8}{'mean_conf':>12}{'mean_cls_prob':>15}")
@@ -83,6 +79,39 @@ def main() -> None:
             f"{condition:<15}{s['em']:>8.4f}{s['f1']:>8.4f}"
             f"{s['mean_confidence']:>12.4f}{s['mean_cls_prob']:>15.4f}"
         )
+
+    with open(ERRORS_DIR / "condition_comparison.json", encoding="utf-8") as f:
+        original = json.load(f)
+
+    gap_before = original["answer_only"]["em"] - original["full"]["em"]
+    gap_after = summary["answer_only"]["em"] - summary["full"]["em"]
+
+    lines = [
+        "# 완화(mitigation) 실험 — Before / After\n",
+        "H3에서 확인된 원인(질문의 타입 제약 누출)을 겨냥한 adversarial training "
+        "(Answer-hop only를 학습 시 unanswerable로 라벨링)이 shortcut 의존도를 "
+        "실제로 줄이는지 확인.\n",
+        "| 조건 | EM (원본) | EM (완화 후) | F1 (원본) | F1 (완화 후) |",
+        "|---|---|---|---|---|",
+    ]
+    for c in CONDITIONS:
+        lines.append(
+            f"| {c} | {original[c]['em']:.4f} | {summary[c]['em']:.4f} "
+            f"| {original[c]['f1']:.4f} | {summary[c]['f1']:.4f} |"
+        )
+    lines += [
+        "",
+        f"**Answer-hop only − Full (EM 격차)**: 원본 {gap_before:+.4f} → "
+        f"완화 후 {gap_after:+.4f}",
+        "",
+        (
+            "격차가 양수(+)면 여전히 shortcut이 우세(Answer-hop only가 Full보다 높음), "
+            "음수(−)로 뒤집히거나 0에 가까워지면 완화가 통했다는 뜻."
+        ),
+    ]
+    with open(ERRORS_DIR / "mitigation_report.md", "w", encoding="utf-8") as f:
+        f.write("\n".join(lines))
+    print("\n".join(lines))
 
 
 if __name__ == "__main__":

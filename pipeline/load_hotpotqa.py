@@ -20,7 +20,7 @@ Filters applied, in order:
    that hypothesis 2 and the bridge-hop-only condition depend on.
 
 HF "train" split -> data/processed/train_pool.jsonl (further split into our
-own train/val in scripts/03_split_dataset.py).
+own train/val in pipeline/split_dataset.py).
 HF "validation" split -> data/processed/test.jsonl (kept aside untouched as
 the final held-out test set used for all three eval conditions).
 """
