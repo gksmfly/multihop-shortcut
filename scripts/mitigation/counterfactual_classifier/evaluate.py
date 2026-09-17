@@ -19,24 +19,19 @@ import os
 
 os.environ.setdefault("CUDA_VISIBLE_DEVICES", "0")
 
-import torch
-from transformers import BertForSequenceClassification, BertTokenizerFast
-
-from multihop_shortcut.inference import run_classifier_inference
+from multihop_shortcut.constants import get_max_length
+from multihop_shortcut.inference import load_classifier_model, run_classifier_inference
 from multihop_shortcut.io_utils import load_jsonl, save_jsonl
 from multihop_shortcut.metrics import counterfactual_bucket
-from multihop_shortcut.paths import ERRORS_DIR, MODELS_DIR, PROCESSED_DIR, SPLITS_DIR
+from multihop_shortcut.paths import ERRORS_DIR, MODELS_DIR, PROCESSED_DIR
 
 MODEL_DIR = MODELS_DIR / "support_classifier_counterfactual" / "best"
 
-with open(SPLITS_DIR / "max_length_recommendation.json", encoding="utf-8") as f:
-    MAX_LENGTH = json.load(f)["recommended_max_length"]
+MAX_LENGTH = get_max_length()
 
 
 def main() -> None:
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    tokenizer = BertTokenizerFast.from_pretrained(str(MODEL_DIR))
-    model = BertForSequenceClassification.from_pretrained(str(MODEL_DIR)).to(device)
+    tokenizer, model, device = load_classifier_model(MODEL_DIR)
 
     preds = load_jsonl(ERRORS_DIR / "test_predictions.jsonl")
     conditions = {r["qid"]: r for r in load_jsonl(PROCESSED_DIR / "test_conditions.jsonl")}

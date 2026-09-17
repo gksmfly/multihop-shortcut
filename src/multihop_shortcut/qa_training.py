@@ -1,5 +1,5 @@
 """Shared SQuAD-style extractive QA training utilities, used by
-scripts/05_train_bert.py (original Full-condition training) and
+pipeline/train_bert.py (original Full-condition training) and
 scripts/mitigation/adversarial_training/train.py (adversarial-training mitigation, which
 adds unanswerable/CLS-labeled rows on top of the same schema).
 """

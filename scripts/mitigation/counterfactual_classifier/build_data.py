@@ -14,24 +14,19 @@ wrong / bridge helped / bridge hurt / no change) needed to quantify
 limitation 2 with real numbers.
 """
 
-import json
 import os
 
 os.environ.setdefault("CUDA_VISIBLE_DEVICES", "0")
 
-import torch
-from transformers import BertForQuestionAnswering, BertTokenizerFast
-
-from multihop_shortcut.inference import run_qa_inference
+from multihop_shortcut.constants import get_max_length
+from multihop_shortcut.inference import load_qa_model, run_qa_inference
 from multihop_shortcut.io_utils import load_jsonl, save_jsonl
 from multihop_shortcut.metrics import counterfactual_bucket, exact_match
 from multihop_shortcut.paths import MODELS_DIR, PROCESSED_DIR, SPLITS_DIR
 
 MODEL_DIR = MODELS_DIR / "multihop_shortcut_qa" / "best"  # original, unmitigated
 
-with open(SPLITS_DIR / "max_length_recommendation.json", encoding="utf-8") as f:
-    MAX_LENGTH = json.load(f)["recommended_max_length"]
-
+MAX_LENGTH = get_max_length()
 
 def label_split(rows: list[dict], pool_by_qid: dict[str, dict], model, tokenizer, device) -> list[dict]:
     examples_p1 = [{"question": r["question"], "context": pool_by_qid[r["qid"]]["answer_hop_text"]} for r in rows]
@@ -65,9 +60,7 @@ def label_split(rows: list[dict], pool_by_qid: dict[str, dict], model, tokenizer
 
 
 def main() -> None:
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    tokenizer = BertTokenizerFast.from_pretrained(str(MODEL_DIR))
-    model = BertForQuestionAnswering.from_pretrained(str(MODEL_DIR)).to(device)
+    tokenizer, model, device = load_qa_model(MODEL_DIR)
 
     pool_rows = load_jsonl(PROCESSED_DIR / "train_pool.jsonl")
     pool_by_qid = {r["qid"]: r for r in pool_rows}

@@ -10,26 +10,21 @@ import os
 
 os.environ.setdefault("CUDA_VISIBLE_DEVICES", "1")
 
-import torch
-from transformers import BertForQuestionAnswering, BertTokenizerFast
-
-from multihop_shortcut.inference import run_qa_inference
+from multihop_shortcut.constants import get_max_length
+from multihop_shortcut.inference import load_qa_model, run_qa_inference
 from multihop_shortcut.io_utils import load_jsonl, save_jsonl
 from multihop_shortcut.metrics import exact_match, f1_score
-from multihop_shortcut.paths import ERRORS_DIR, MODELS_DIR, PROCESSED_DIR, SPLITS_DIR
+from multihop_shortcut.paths import ERRORS_DIR, MODELS_DIR, PROCESSED_DIR
 
 MODEL_DIR = MODELS_DIR / "multihop_shortcut_qa_mitigated" / "best"
 
-with open(SPLITS_DIR / "max_length_recommendation.json", encoding="utf-8") as f:
-    MAX_LENGTH = json.load(f)["recommended_max_length"]
+MAX_LENGTH = get_max_length()
 
 CONDITIONS = ["full", "answer_only", "bridge_only"]
 
 
 def main() -> None:
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    tokenizer = BertTokenizerFast.from_pretrained(str(MODEL_DIR))
-    model = BertForQuestionAnswering.from_pretrained(str(MODEL_DIR)).to(device)
+    tokenizer, model, device = load_qa_model(MODEL_DIR)
 
     rows = load_jsonl(PROCESSED_DIR / "test_conditions.jsonl")
 

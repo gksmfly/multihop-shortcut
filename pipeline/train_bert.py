@@ -9,19 +9,16 @@ import os
 # Must be set before torch is imported - see README "환경 설정".
 os.environ.setdefault("CUDA_VISIBLE_DEVICES", "1")
 
-import json
-
 from transformers import BertForQuestionAnswering, BertTokenizerFast, Trainer, TrainingArguments
 
-from multihop_shortcut.constants import BASE_MODEL_NAME
+from multihop_shortcut.constants import BASE_MODEL_NAME, get_max_length
 from multihop_shortcut.io_utils import load_jsonl
 from multihop_shortcut.paths import MODELS_DIR, SPLITS_DIR
 from multihop_shortcut.qa_training import JsonlQADataset
 
 MODEL_DIR = MODELS_DIR / "multihop_shortcut_qa"
 
-with open(SPLITS_DIR / "max_length_recommendation.json", encoding="utf-8") as f:
-    MAX_LENGTH = json.load(f)["recommended_max_length"]
+MAX_LENGTH = get_max_length()
 
 
 def main() -> None:

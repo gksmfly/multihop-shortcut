@@ -18,7 +18,6 @@ import os
 
 os.environ.setdefault("CUDA_VISIBLE_DEVICES", "0")
 
-import json
 
 from transformers import BertForSequenceClassification, BertTokenizerFast, Trainer, TrainingArguments
 
@@ -27,15 +26,14 @@ from multihop_shortcut.classifier_training import (
     build_augmented_question,
     compute_metrics,
 )
-from multihop_shortcut.constants import BASE_MODEL_NAME
+from multihop_shortcut.constants import BASE_MODEL_NAME, get_max_length
 from multihop_shortcut.io_utils import load_jsonl
 from multihop_shortcut.metrics import BUCKET_TO_3WAY
 from multihop_shortcut.paths import MODELS_DIR, SPLITS_DIR
 
 MODEL_DIR = MODELS_DIR / "support_classifier_3way"
 
-with open(SPLITS_DIR / "max_length_recommendation.json", encoding="utf-8") as f:
-    MAX_LENGTH = json.load(f)["recommended_max_length"]
+MAX_LENGTH = get_max_length()
 
 
 def build_rows(rows: list[dict]) -> list[dict]:

@@ -1,7 +1,28 @@
 import torch
 import torch.nn.functional as F
+from transformers import BertForQuestionAnswering, BertForSequenceClassification, BertTokenizerFast
 
 CLS_INDEX = 0
+
+
+def load_qa_model(model_dir):
+    """Loads a BertForQuestionAnswering checkpoint (original or mitigated)
+    onto the available device. Returns (tokenizer, model, device).
+    """
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    tokenizer = BertTokenizerFast.from_pretrained(str(model_dir))
+    model = BertForQuestionAnswering.from_pretrained(str(model_dir)).to(device)
+    return tokenizer, model, device
+
+
+def load_classifier_model(model_dir):
+    """Loads a BertForSequenceClassification Stage-2 checkpoint (B-v1/B-v3/B-v4)
+    onto the available device. Returns (tokenizer, model, device).
+    """
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    tokenizer = BertTokenizerFast.from_pretrained(str(model_dir))
+    model = BertForSequenceClassification.from_pretrained(str(model_dir)).to(device)
+    return tokenizer, model, device
 
 
 def run_multiclass_probs(
@@ -89,7 +110,7 @@ def run_qa_inference(
     specials): `confidence` (probability mass on the predicted span) and
     `cls_prob` (probability mass on the [CLS] position, a proxy for the model
     routing probability toward "no good span in this context" - see
-    scripts/07_confidence_bias_analysis.py).
+    pipeline/confidence_bias_analysis.py).
     """
     model.eval()
     results = []
